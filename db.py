@@ -291,6 +291,16 @@ async def list_projects(limit: int = 50) -> list[aiosqlite.Row]:
         cur = await db.execute("SELECT * FROM projects ORDER BY id DESC LIMIT ?", (limit,))
         return await cur.fetchall()
 
+
+async def get_all_referrers() -> list[aiosqlite.Row]:
+    async with _conn() as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            "SELECT telegram_id, username, ref_code, discount_percent FROM users WHERE ref_code IS NOT NULL"
+        )
+        return await cur.fetchall()
+
+
 async def general_stats() -> dict:
     async with _conn() as db:
         db.row_factory = aiosqlite.Row
