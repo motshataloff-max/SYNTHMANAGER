@@ -2,7 +2,7 @@ from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMar
 
 
 # ==========================================
-# ГЛАВНЫЕ МЕНЮ (Reply-клавиатуры)
+# ГЛАВНЫЕ МЕНЮ
 # ==========================================
 
 def main_menu() -> ReplyKeyboardMarkup:
@@ -14,12 +14,15 @@ def main_menu() -> ReplyKeyboardMarkup:
                 KeyboardButton(text="👨‍💻 Стать разработчиком"),
             ],
             [
-                KeyboardButton(text="🧪 Стать тестировщиком"),
-                KeyboardButton(text="📣 Стать пиарщиком"),
+                KeyboardButton(text="🤝 Стать партнёром"),
+                KeyboardButton(text="🔗 Моя ссылка на скидку"),
             ],
             [
                 KeyboardButton(text="📊 Моя статистика"),
                 KeyboardButton(text="ℹ️ О нас"),
+            ],
+            [
+                KeyboardButton(text="🆘 Поддержка"),
             ],
         ],
         resize_keyboard=True,
@@ -28,16 +31,12 @@ def main_menu() -> ReplyKeyboardMarkup:
 
 
 def admin_menu() -> ReplyKeyboardMarkup:
-    """Админское меню (видно только CEO и менеджерам)."""
+    """Админское меню (CEO и менеджеры)."""
     return ReplyKeyboardMarkup(
         keyboard=[
             [
                 KeyboardButton(text="📋 Список проектов"),
                 KeyboardButton(text="👥 Менеджеры"),
-            ],
-            [
-                KeyboardButton(text="👨‍💻 Разработчики"),
-                KeyboardButton(text="🧪 Тестировщики"),
             ],
             [
                 KeyboardButton(text="📈 Статистика бота"),
@@ -48,192 +47,66 @@ def admin_menu() -> ReplyKeyboardMarkup:
             ],
         ],
         resize_keyboard=True,
-        input_field_placeholder="Админ-панель 👑",
+        input_field_placeholder="Админ-панель SYNTH 👑",
     )
 
 
 # ==========================================
-# ДЕЙСТВИЯ С ПРОЕКТАМИ (Inline-клавиатуры)
+# INLINE КЛАВИАТУРЫ (Кнопки под сообщениями)
 # ==========================================
 
 def project_actions_kb(project_id: int) -> InlineKeyboardMarkup:
-    """Клавиатура с действиями для конкретного проекта."""
+    """Действия с проектом."""
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(
-                    text="⚙️ Назначить",
-                    callback_data=f"proj_assign_{project_id}"
-                ),
-                InlineKeyboardButton(
-                    text="✅ Завершить",
-                    callback_data=f"proj_complete_{project_id}"
-                ),
+                InlineKeyboardButton(text="⚙️ Назначить", callback_data=f"proj_assign_{project_id}"),
+                InlineKeyboardButton(text="✅ Завершить", callback_data=f"proj_complete_{project_id}"),
             ],
             [
-                InlineKeyboardButton(
-                    text="💸 Неоплачено",
-                    callback_data=f"proj_unpaid_{project_id}"
-                ),
-                InlineKeyboardButton(
-                    text="❌ Отменить",
-                    callback_data=f"proj_cancel_{project_id}"
-                ),
+                InlineKeyboardButton(text="💸 Неоплачено", callback_data=f"proj_unpaid_{project_id}"),
+                InlineKeyboardButton(text="❌ Отменить", callback_data=f"proj_cancel_{project_id}"),
             ],
         ]
     )
 
-
-# ==========================================
-# МОДЕРАЦИЯ РАЗРАБОТЧИКОВ
-# ==========================================
 
 def dev_moderation_kb(user_id: int) -> InlineKeyboardMarkup:
-    """Клавиатура для одобрения/отклонения заявки разработчика."""
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(
-                    text="✅ Одобрить",
-                    callback_data=f"dev_approve_{user_id}"
-                ),
-                InlineKeyboardButton(
-                    text="❌ Отклонить",
-                    callback_data=f"dev_reject_{user_id}"
-                ),
+                InlineKeyboardButton(text="✅ Одобрить", callback_data=f"dev_approve_{user_id}"),
+                InlineKeyboardButton(text="❌ Отклонить", callback_data=f"dev_reject_{user_id}"),
             ]
         ]
     )
 
-
-# ==========================================
-# МОДЕРАЦИЯ ТЕСТЕРОВ
-# ==========================================
-
-def tester_moderation_kb(user_id: int) -> InlineKeyboardMarkup:
-    """Клавиатура для одобрения/отклонения заявки тестировщика."""
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="✅ Одобрить",
-                    callback_data=f"tester_approve_{user_id}"
-                ),
-                InlineKeyboardButton(
-                    text="❌ Отклонить",
-                    callback_data=f"tester_reject_{user_id}"
-                ),
-            ]
-        ]
-    )
-
-
-# ==========================================
-# МОДЕРАЦИЯ ПИАРЩИКОВ
-# ==========================================
 
 def pr_moderation_kb(user_id: int) -> InlineKeyboardMarkup:
-    """Клавиатура для одобрения/отклонения заявки пиарщика."""
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(
-                    text="✅ Одобрить",
-                    callback_data=f"pr_approve_{user_id}"
-                ),
-                InlineKeyboardButton(
-                    text="❌ Отклонить",
-                    callback_data=f"pr_reject_{user_id}"
-                ),
+                InlineKeyboardButton(text="✅ Одобрить", callback_data=f"pr_approve_{user_id}"),
+                InlineKeyboardButton(text="❌ Отклонить", callback_data=f"pr_reject_{user_id}"),
             ]
         ]
     )
 
 
-# ==========================================
-# УПРАВЛЕНИЕ МЕНЕДЖЕРАМИ
-# ==========================================
-
-def manager_actions_kb(user_id: int) -> InlineKeyboardMarkup:
-    """Клавиатура для управления менеджером."""
+def partner_moderation_kb(user_id: int) -> InlineKeyboardMarkup:
+    """Кнопки для одобрения партнёра (только для CEO)."""
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(
-                    text="⏸ Отстранить",
-                    callback_data=f"manager_suspend_{user_id}"
-                ),
-                InlineKeyboardButton(
-                    text="▶️ Вернуть",
-                    callback_data=f"manager_resume_{user_id}"
-                ),
-            ],
-            [
-                InlineKeyboardButton(
-                    text="🗑 Удалить",
-                    callback_data=f"manager_remove_{user_id}"
-                ),
-            ],
-        ]
-    )
-
-
-# ==========================================
-# ВЫБОР УРОВНЯ (для разработчиков и тестеров)
-# ==========================================
-
-def dev_level_kb(user_id: int) -> InlineKeyboardMarkup:
-    """Клавиатура для выбора уровня разработчика."""
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(text="🔴 Senior", callback_data=f"dev_level_{user_id}_senior"),
-                InlineKeyboardButton(text="🟡 Medium", callback_data=f"dev_level_{user_id}_medium"),
-            ],
-            [
-                InlineKeyboardButton(text="🟢 Junior", callback_data=f"dev_level_{user_id}_junior"),
-            ],
-        ]
-    )
-
-
-def tester_level_kb(user_id: int) -> InlineKeyboardMarkup:
-    """Клавиатура для выбора уровня тестировщика."""
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(text="🟢 Начинающий", callback_data=f"tester_level_{user_id}_beginner"),
-                InlineKeyboardButton(text="🔵 Опытный", callback_data=f"tester_level_{user_id}_experienced"),
-            ],
-        ]
-    )
-
-
-# ==========================================
-# НАВИГАЦИЯ И ОТМЕНА
-# ==========================================
-
-def cancel_kb() -> ReplyKeyboardMarkup:
-    """Клавиатура с кнопкой отмены."""
-    return ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="❌ Отмена")],
-        ],
-        resize_keyboard=True,
-    )
-
-
-def back_to_menu_kb() -> InlineKeyboardMarkup:
-    """Кнопка возврата в главное меню."""
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="🔙 В главное меню", callback_data="back_to_menu")],
+                InlineKeyboardButton(text="✅ Одобрить партнёра", callback_data=f"partner_approve_{user_id}"),
+                InlineKeyboardButton(text="❌ Отклонить", callback_data=f"partner_reject_{user_id}"),
+            ]
         ]
     )
 
 
 def yes_no_kb(action: str) -> InlineKeyboardMarkup:
-    """Универсальная клавиатура Да/Нет для подтверждения действий."""
+    """Универсальная клавиатура Да/Нет для подтверждений."""
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
@@ -241,4 +114,12 @@ def yes_no_kb(action: str) -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="❌ Нет", callback_data=f"{action}_no"),
             ],
         ]
+    )
+
+
+def cancel_kb() -> ReplyKeyboardMarkup:
+    """Кнопка отмены для анкет."""
+    return ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text="❌ Отмена")]],
+        resize_keyboard=True,
     )
