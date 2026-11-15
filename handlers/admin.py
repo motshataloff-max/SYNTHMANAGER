@@ -10,7 +10,8 @@ from aiogram.types import Message, CallbackQuery, FSInputFile
 
 import db
 from config import config
-from keyboards import main_menu, yes_no_kb
+from keyboards import main_menu, yes_no_kb, managers_list_kb
+from states import AssignForm, VacationForm
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -78,6 +79,25 @@ async def restart_bot(message: Message):
     await message.answer("🔄 Перезапуск бота...")
     os.execv(sys.executable, [sys.executable] + sys.argv)
 
+@router.message(Command("backup_db"))
+async def backup_db(message: Message):
+    if not await is_ceo(message.from_user.id): return
+    db_path = db.DB_PATH
+    if not os.path.exists(db_path):
+        return await message.answer("❌ Файл базы данных не найден.")
+    try:
+        await message.answer("⏳ Отправляю базу данных в канал...")
+        doc = FSInputFile(db_path)
+        await message.bot.send_document(
+            chat_id=config.ping_chat_id,
+            document=doc,
+            caption=f"📦 <b>Бэкап БД SYNTH</b>\n📅 {datetime.now().strftime('%d.%m.%Y %H:%M')}"
+        )
+        await message.answer("✅ База данных успешно отправлена в канал!")
+    except Exception as e:
+        logger.error(f"Ошибка отправки бэкапа: {e}")
+        await message.answer(f"❌ Ошибка при отправке: {e}")
+
 # ==========================================
 # МОДЕРАЦИЯ ЗАЯВОК (INLINE КНОПКИ)
 # ==========================================
@@ -125,7 +145,65 @@ async def callback_partner_reject(callback: CallbackQuery):
     await callback.answer("Отклонено!")
 
 # ==========================================
-# ОПАСНЫЕ ДЕЙСТВИЯ (Управление проектами)
+# УПРАВЛЕНИЕ ОТПУСКАМИ
+# ==========================================
+
+@router.callback_query(F.data.startswith("vacation_select_"))
+async def vacation_select(callback: CallbackQuery, state: FSMContext):
+    if not await is_ceo(callback.from_user.id):
+        return await callback.answer()
+    
+    manager_id = int(callback.data.split("_")[2])
+    await state.update_data(manager_id=manager_id)
+    await state.set_state(VacationForm.start_date)
+    await callback.message.edit_text(
+        f"📅 <b>Управление отпуском</b>\n\n"
+        f"Выбран менеджер: <code>{manager_id}</code>\n"
+        f"Введите дату начала отпуска в формате ГГГГ-ММ-ДД (например, 2026-11-20):",
+        parse_mode="HTML"
+    )
+    await callback.answer()
+
+@router.callback_query(F.data == "vacation_cancel")
+async def vacation_cancel(callback: CallbackQuery, state: FSMContext):
+    if not await is_ceo(callback.from_user.id):
+        return await callback.answer()
+    await state.clear()
+    await callback.message.edit_text("❌ Управление отпусками отменено.")
+    await callback.answer()
+
+@router.message(VacationForm.start_date)
+async def vacation_start(message: Message, state: FSMContext):
+    try:
+        datetime.strptime(message.text.strip(), "%Y-%m-%d")
+        await state.update_data(start_date=message.text.strip())
+        await state.set_state(VacationForm.end_date)
+        await message.answer("📅 Введите дату конца отпуска в формате ГГГГ-ММ-ДД (например, 2026-11-25):")
+    except ValueError:
+        await message.answer("⚠️ Неверный формат даты. Используйте ГГГГ-ММ-ДД.")
+
+@router.message(VacationForm.end_date)
+async def vacation_end(message: Message, state: FSMContext):
+    try:
+        datetime.strptime(message.text.strip(), "%Y-%m-%d")
+        data = await state.get_data()
+        manager_id = data["manager_id"]
+        start_date = data["start_date"]
+        end_date = message.text.strip()
+        
+        await db.add_vacation(manager_id, start_date, end_date)
+        await state.clear()
+        await message.answer(
+            f"✅ Отпуск для менеджера <code>{manager_id}</code> установлен с {start_date} по {end_date}.\n"
+            f"Теперь бот не будет назначать ему новые заявки.",
+            parse_mode="HTML",
+            reply_markup=main_menu()
+        )
+    except ValueError:
+        await message.answer("⚠️ Неверный формат даты. Используйте ГГГГ-ММ-ДД.")
+
+# ==========================================
+# УПРАВЛЕНИЕ ПРОЕКТАМИ
 # ==========================================
 
 @router.message(Command("complete"))
@@ -137,18 +215,30 @@ async def complete_project(message: Message, bot: Bot):
     
     project_id = int(parts[1])
     project = await db.get_project(project_id)
-    if not project or project["status"] == "done":
-        return await message.answer("Проект не найден или уже завершён.")
+    if not project: return await message.answer("Проект не найден.")
 
-    # Распределение бюджета (упрощённая логика)
+    # ЗАЩИТА: Менеджеры не могут завершать проекты в работе без разрешения CEO
+    if message.from_user.id != config.owner_id:
+        if project["status"] in ["assigned", "in_progress", "in_team_heavy", "in_team_medium", "in_team_fast"]:
+            return await message.answer("⛔ Этот проект уже в работе. Завершить его может только CEO.")
+
+    if project["status"] == "done":
+        return await message.answer("Проект уже завершён.")
+
     budget = project["budget"]
     company_share = budget * 20 // 100
     await db.add_company_delta(company_share, "project_completion", project_id)
     
-    # Начисление скидки рефереру (1%)
     if project["referrer_id"]:
-        await db.increment_discount_by_user_id(project["referrer_id"])
-        await bot.send_message(project["referrer_id"], f"🎉 Ваш реферал завершил проект #{project_id}! Ваша скидка увеличена на 1%.")
+        new_discount = await db.increment_discount_by_user_id(project["referrer_id"])
+        try:
+            await bot.send_message(
+                project["referrer_id"], 
+                f"🎉 Ваш реферал завершил проект #{project_id}!\nВаша скидка теперь: <b>{new_discount}%</b>",
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
 
     await db.set_project_status(project_id, "done")
     await message.answer(f"✅ Проект #{project_id} завершён. Компания получила {company_share} ⭐.")
@@ -162,34 +252,14 @@ async def set_status(message: Message):
     
     project_id = int(parts[1])
     value = parts[2].lower()
+    project = await db.get_project(project_id)
+    
+    if message.from_user.id != config.owner_id and project and project["status"] in ["assigned", "in_progress", "in_team_heavy", "in_team_medium", "in_team_fast"]:
+        return await message.answer("⛔ Проект в работе. Изменение статуса доступно только CEO.")
 
     if value == "delete":
         await db.delete_project(project_id)
-        await message.answer(f"🗑 Проект #{project_id} полностью удалён из базы данных.")
-        return
+        return await message.answer(f"🗑 Проект #{project_id} полностью удалён из базы данных.")
     
     await db.set_project_status(project_id, value)
     await message.answer(f"✅ Статус проекта #{project_id} изменён на: <b>{value}</b>", parse_mode="HTML")
-
-# ==========================================
-# БЭКАП И ВОССТАНОВЛЕНИЕ
-# ==========================================
-
-@router.message(Command("backup_db"))
-async def backup_db(message: Message):
-    if not await is_ceo(message.from_user.id): return
-    db_path = db.DB_PATH
-    if not os.path.exists(db_path):
-        return await message.answer("❌ Файл базы данных не найден.")
-    try:
-        await message.answer("⏳ Отправляю базу данных в канал...")
-        doc = FSInputFile(db_path)
-        await message.bot.send_document(
-            chat_id=config.ping_chat_id,
-            document=doc,
-            caption=f"📦 <b>Бэкап БД SYNTH</b>\n📅 {datetime.now().strftime('%d.%m.%Y %H:%M')}"
-        )
-        await message.answer("✅ База данных успешно отправлена в канал!")
-    except Exception as e:
-        logger.error(f"Ошибка отправки бэкапа: {e}")
-        await message.answer(f"❌ Ошибка при отправке: {e}")
