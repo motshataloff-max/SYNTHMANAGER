@@ -5,95 +5,109 @@ import aiosqlite
 DB_PATH = "data/bot.db"
 
 SCHEMA = """
+PRAGMA busy_timeout=5000;
 PRAGMA journal_mode=WAL;
 
 CREATE TABLE IF NOT EXISTS users (
     telegram_id INTEGER PRIMARY KEY,
-    username    TEXT,
-    full_name   TEXT,
-    ref_code    TEXT UNIQUE,
+    username TEXT,
+    full_name TEXT,
+    ref_code TEXT UNIQUE,
     referrer_id INTEGER,
     discount_percent INTEGER DEFAULT 0,
-    age         INTEGER,
-    country     TEXT,
+    age INTEGER,
+    country TEXT,
     is_samozanyat INTEGER DEFAULT 0,
-    created_at  TEXT DEFAULT CURRENT_TIMESTAMP
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS roles (
-    telegram_id   INTEGER NOT NULL,
-    role          TEXT NOT NULL,
-    status        TEXT NOT NULL DEFAULT 'pending',
-    level         TEXT,
+    telegram_id INTEGER NOT NULL,
+    role TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    level TEXT,
     referrer_text TEXT,
-    created_at    TEXT DEFAULT CURRENT_TIMESTAMP,
-    updated_at    TEXT,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT,
     PRIMARY KEY (telegram_id, role)
 );
 
 CREATE TABLE IF NOT EXISTS projects (
-    id               INTEGER PRIMARY KEY AUTOINCREMENT,
-    client_id        INTEGER NOT NULL,
-    title            TEXT NOT NULL,
-    description      TEXT NOT NULL,
-    budget           INTEGER NOT NULL,
-    contact_info     TEXT,
-    country          TEXT,
-    is_samozanyat    INTEGER DEFAULT 0,
-    status           TEXT NOT NULL DEFAULT 'new',
-    referrer_id      INTEGER,
-    manager_id       INTEGER,
-    created_at       TEXT DEFAULT CURRENT_TIMESTAMP,
-    completed_at     TEXT
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    client_id INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    description TEXT NOT NULL,
+    budget INTEGER NOT NULL,
+    contact_info TEXT,
+    country TEXT,
+    is_samozanyat INTEGER DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'new',
+    referrer_id INTEGER,
+    manager_id INTEGER,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    completed_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS project_team (
-    project_id      INTEGER NOT NULL,
-    telegram_id     INTEGER NOT NULL,
+    project_id INTEGER NOT NULL,
+    telegram_id INTEGER NOT NULL,
     role_in_project TEXT NOT NULL,
-    share_percent   INTEGER NOT NULL,
+    share_percent INTEGER NOT NULL,
     PRIMARY KEY (project_id, telegram_id)
 );
 
 CREATE TABLE IF NOT EXISTS payouts (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    project_id  INTEGER NOT NULL,
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL,
     telegram_id INTEGER,
-    role        TEXT NOT NULL,
-    amount      INTEGER NOT NULL,
-    created_at  TEXT DEFAULT CURRENT_TIMESTAMP
+    role TEXT NOT NULL,
+    amount INTEGER NOT NULL,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS company_ledger (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    delta      INTEGER NOT NULL,
-    reason     TEXT,
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    delta INTEGER NOT NULL,
+    reason TEXT,
     project_id INTEGER,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS rr_state (
-    id         INTEGER PRIMARY KEY CHECK (id = 1),
+    id INTEGER PRIMARY KEY CHECK (id = 1),
     last_index INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS settings (
-    key   TEXT PRIMARY KEY,
+    key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS support_tickets (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id     INTEGER NOT NULL,
-    message     TEXT NOT NULL,
-    status      TEXT NOT NULL DEFAULT 'open',
-    created_at  TEXT DEFAULT CURRENT_TIMESTAMP
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    message TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'open',
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS vacations (
+    manager_id INTEGER PRIMARY KEY,
+    start_date TEXT,
+    end_date TEXT
+);
+
+CREATE TABLE IF NOT EXISTS topics (
+    group_type TEXT PRIMARY KEY,
+    topic_id INTEGER,
+    topic_name TEXT
 );
 
 INSERT OR IGNORE INTO rr_state(id, last_index) VALUES (1, 0);
 INSERT OR IGNORE INTO settings(key, value) VALUES
 ('about', '🇷🇺 SYNTH — российская команда разработчиков. Мы не нанимаем представителей недружественных стран и не ведём с ними сделок. Мы делаем Telegram-ботов, парсеры и Python-скрипты. Работаем за Stars. Качество гарантируем.');
 """
+
 
 async def init(path: str) -> None:
     global DB_PATH
@@ -103,7 +117,7 @@ async def init(path: str) -> None:
     async with aiosqlite.connect(DB_PATH) as db:
         await db.executescript(SCHEMA)
         
-        # Миграции: если база старая, добавляем новые колонки
+        # Миграции для старых баз данных
         try:
             await db.execute("SELECT age FROM users LIMIT 1")
         except Exception:
@@ -114,8 +128,10 @@ async def init(path: str) -> None:
             
         await db.commit()
 
+
 def _conn():
     return aiosqlite.connect(DB_PATH)
+
 
 # ==========================================
 # USERS
@@ -141,13 +157,6 @@ async def get_or_create_user(tg_user, referrer_id: Optional[int] = None) -> aios
         cur = await db.execute("SELECT * FROM users WHERE telegram_id=?", (tg_user.id,))
         return await cur.fetchone()
 
-async def update_user_profile(user_id: int, age: int, country: str, is_samozanyat: int) -> None:
-    async with _conn() as db:
-        await db.execute(
-            "UPDATE users SET age=?, country=?, is_samozanyat=? WHERE telegram_id=?",
-            (age, country, is_samozanyat, user_id)
-        )
-        await db.commit()
 
 async def get_user(user_id: int) -> Optional[aiosqlite.Row]:
     async with _conn() as db:
@@ -155,19 +164,22 @@ async def get_user(user_id: int) -> Optional[aiosqlite.Row]:
         cur = await db.execute("SELECT * FROM users WHERE telegram_id=?", (user_id,))
         return await cur.fetchone()
 
+
 async def find_by_ref_code(code: str) -> Optional[aiosqlite.Row]:
     async with _conn() as db:
         db.row_factory = aiosqlite.Row
         cur = await db.execute("SELECT * FROM users WHERE ref_code=?", (code,))
         return await cur.fetchone()
 
+
 async def set_ref_code(user_id: int, code: str) -> None:
     async with _conn() as db:
         await db.execute("UPDATE users SET ref_code=? WHERE telegram_id=?", (code, user_id))
         await db.commit()
 
+
 # ==========================================
-# ROLES
+# ROLES & MANAGERS
 # ==========================================
 
 async def get_role(user_id: int, role: str) -> Optional[aiosqlite.Row]:
@@ -175,6 +187,7 @@ async def get_role(user_id: int, role: str) -> Optional[aiosqlite.Row]:
         db.row_factory = aiosqlite.Row
         cur = await db.execute("SELECT * FROM roles WHERE telegram_id=? AND role=?", (user_id, role))
         return await cur.fetchone()
+
 
 async def upsert_role(user_id: int, role: str, status: str,
                       level: Optional[str] = None, referrer_text: Optional[str] = None) -> None:
@@ -190,21 +203,117 @@ async def upsert_role(user_id: int, role: str, status: str,
         """, (user_id, role, status, level, referrer_text))
         await db.commit()
 
+
 async def has_active_role(user_id: int, role: str) -> bool:
     r = await get_role(user_id, role)
     return bool(r and r["status"] == "active")
 
+
 async def list_active_by_role(role: str) -> list[aiosqlite.Row]:
     async with _conn() as db:
         db.row_factory = aiosqlite.Row
-        cur = await db.execute("SELECT * FROM roles WHERE role=? AND status='active' ORDER BY telegram_id", (role,))
+        cur = await db.execute(
+            "SELECT * FROM roles WHERE role=? AND status='active' ORDER BY telegram_id",
+            (role,),
+        )
         return await cur.fetchall()
+
 
 async def list_managers() -> list[aiosqlite.Row]:
     async with _conn() as db:
         db.row_factory = aiosqlite.Row
         cur = await db.execute("SELECT * FROM roles WHERE role='manager' ORDER BY telegram_id")
         return await cur.fetchall()
+
+
+# ==========================================
+# ОТПУСКА МЕНЕДЖЕРОВ
+# ==========================================
+
+async def is_manager_on_vacation(manager_id: int) -> bool:
+    from datetime import datetime
+    async with _conn() as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute("SELECT start_date, end_date FROM vacations WHERE manager_id=?", (manager_id,))
+        row = await cur.fetchone()
+        if not row:
+            return False
+        today = datetime.now().strftime("%Y-%m-%d")
+        return row["start_date"] <= today <= row["end_date"]
+
+
+async def list_recipients(owner_id: int) -> list[int]:
+    """Возвращает список активных менеджеров (не в отпуске) + owner."""
+    async with _conn() as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            "SELECT telegram_id FROM roles WHERE role='manager' AND status='active' ORDER BY telegram_id"
+        )
+        rows = await cur.fetchall()
+    
+    active_managers = []
+    for r in rows:
+        if not await is_manager_on_vacation(r["telegram_id"]):
+            active_managers.append(r["telegram_id"])
+    return [owner_id] + active_managers
+
+
+async def next_recipient(owner_id: int) -> int:
+    """Возвращает следующего менеджера по кругу (исключая тех, кто в отпуске)."""
+    recipients = await list_recipients(owner_id)
+    if not recipients:
+        return owner_id
+
+    async with _conn() as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute("SELECT last_index FROM rr_state WHERE id=1")
+        row = await cur.fetchone()
+        last = row["last_index"] if row else 0
+        idx = last % len(recipients)
+        chosen = recipients[idx]
+        await db.execute(
+            "UPDATE rr_state SET last_index=? WHERE id=1",
+            ((idx + 1) % len(recipients),)
+        )
+        await db.commit()
+    return chosen
+
+
+async def add_vacation(manager_id: int, start_date: str, end_date: str) -> None:
+    async with _conn() as db:
+        await db.execute(
+            "INSERT OR REPLACE INTO vacations(manager_id, start_date, end_date) VALUES(?,?,?)",
+            (manager_id, start_date, end_date)
+        )
+        await db.commit()
+
+
+async def remove_vacation(manager_id: int) -> None:
+    async with _conn() as db:
+        await db.execute("DELETE FROM vacations WHERE manager_id=?", (manager_id,))
+        await db.commit()
+
+
+# ==========================================
+# ТЕМЫ В ГРУППАХ (ФОРУМЫ)
+# ==========================================
+
+async def save_topic(group_type: str, topic_id: int, topic_name: str) -> None:
+    async with _conn() as db:
+        await db.execute(
+            "INSERT OR REPLACE INTO topics(group_type, topic_id, topic_name) VALUES(?,?,?)",
+            (group_type, topic_id, topic_name)
+        )
+        await db.commit()
+
+
+async def get_topic(group_type: str) -> Optional[int]:
+    async with _conn() as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute("SELECT topic_id FROM topics WHERE group_type=?", (group_type,))
+        row = await cur.fetchone()
+        return row["topic_id"] if row else None
+
 
 # ==========================================
 # SETTINGS
@@ -217,6 +326,7 @@ async def get_setting(key: str, default: str = "") -> str:
         row = await cur.fetchone()
         return row["value"] if row else default
 
+
 async def set_setting(key: str, value: str) -> None:
     async with _conn() as db:
         await db.execute(
@@ -224,6 +334,7 @@ async def set_setting(key: str, value: str) -> None:
             (key, value),
         )
         await db.commit()
+
 
 # ==========================================
 # SUPPORT TICKETS
@@ -238,24 +349,29 @@ async def create_ticket(user_id: int, message: str) -> int:
         await db.commit()
         return cur.lastrowid
 
+
 async def get_open_tickets() -> list[aiosqlite.Row]:
     async with _conn() as db:
         db.row_factory = aiosqlite.Row
         cur = await db.execute("SELECT * FROM support_tickets WHERE status='open' ORDER BY id DESC")
         return await cur.fetchall()
 
+
 async def close_ticket(ticket_id: int) -> None:
     async with _conn() as db:
         await db.execute("UPDATE support_tickets SET status='closed' WHERE id=?", (ticket_id,))
         await db.commit()
 
+
 # ==========================================
-# PROJECTS & STATS
+# PROJECTS
 # ==========================================
 
-async def create_project(client_id: int, title: str, description: str, budget: int, 
-                         contact_info: str, country: str, is_samozanyat: int, 
-                         referrer_id: Optional[int], manager_id: int) -> int:
+async def create_project(
+    client_id: int, title: str, description: str, budget: int,
+    contact_info: str, country: str, is_samozanyat: int,
+    referrer_id: Optional[int], manager_id: int,
+) -> int:
     async with _conn() as db:
         cur = await db.execute(
             "INSERT INTO projects(client_id, title, description, budget, contact_info, country, is_samozanyat, referrer_id, manager_id) "
@@ -265,11 +381,13 @@ async def create_project(client_id: int, title: str, description: str, budget: i
         await db.commit()
         return cur.lastrowid
 
+
 async def get_project(project_id: int) -> Optional[aiosqlite.Row]:
     async with _conn() as db:
         db.row_factory = aiosqlite.Row
         cur = await db.execute("SELECT * FROM projects WHERE id=?", (project_id,))
         return await cur.fetchone()
+
 
 async def set_project_status(project_id: int, status: str) -> None:
     async with _conn() as db:
@@ -279,11 +397,13 @@ async def set_project_status(project_id: int, status: str) -> None:
         )
         await db.commit()
 
+
 async def delete_project(project_id: int) -> None:
     async with _conn() as db:
         await db.execute("DELETE FROM project_team WHERE project_id=?", (project_id,))
         await db.execute("DELETE FROM projects WHERE id=?", (project_id,))
         await db.commit()
+
 
 async def list_projects(limit: int = 50) -> list[aiosqlite.Row]:
     async with _conn() as db:
@@ -292,47 +412,114 @@ async def list_projects(limit: int = 50) -> list[aiosqlite.Row]:
         return await cur.fetchall()
 
 
-async def get_all_referrers() -> list[aiosqlite.Row]:
+# ==========================================
+# TEAM & PAYOUTS
+# ==========================================
+
+async def set_team(project_id: int, members: list[tuple[int, str, int]]) -> None:
+    async with _conn() as db:
+        await db.execute("DELETE FROM project_team WHERE project_id=?", (project_id,))
+        await db.executemany(
+            "INSERT INTO project_team(project_id, telegram_id, role_in_project, share_percent) VALUES(?,?,?,?)",
+            [(project_id, uid, role, share) for uid, role, share in members],
+        )
+        await db.commit()
+
+
+async def get_team(project_id: int) -> list[aiosqlite.Row]:
     async with _conn() as db:
         db.row_factory = aiosqlite.Row
-        cur = await db.execute(
-            "SELECT telegram_id, username, ref_code, discount_percent FROM users WHERE ref_code IS NOT NULL"
-        )
+        cur = await db.execute("SELECT * FROM project_team WHERE project_id=?", (project_id,))
         return await cur.fetchall()
 
+
+async def insert_payouts(project_id: int, lines: list[tuple]) -> None:
+    async with _conn() as db:
+        await db.executemany(
+            "INSERT INTO payouts(project_id, telegram_id, role, amount) VALUES(?,?,?,?)",
+            [(project_id, uid, role, amount) for uid, role, amount in lines],
+        )
+        await db.commit()
+
+
+async def add_company_delta(delta: int, reason: str, project_id: int) -> None:
+    async with _conn() as db:
+        await db.execute(
+            "INSERT INTO company_ledger(delta, reason, project_id) VALUES(?,?,?)",
+            (delta, reason, project_id),
+        )
+        await db.commit()
+
+
+async def company_balance() -> int:
+    async with _conn() as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute("SELECT COALESCE(SUM(delta),0) s FROM company_ledger")
+        return (await cur.fetchone())["s"]
+
+
+# ==========================================
+# STATS
+# ==========================================
 
 async def general_stats() -> dict:
     async with _conn() as db:
         db.row_factory = aiosqlite.Row
+        
         async def scalar(sql: str, params: tuple = ()) -> int:
             cur = await db.execute(sql, params)
             row = await cur.fetchone()
             return row[0] if row else 0
 
-        clients = await scalar("SELECT COUNT(*) FROM users")
-        active_projects = await scalar("SELECT COUNT(*) FROM projects WHERE status IN ('new','assigned','in_progress')")
-        done_projects = await scalar("SELECT COUNT(*) FROM projects WHERE status='done'")
-        turnover = await scalar("SELECT COALESCE(SUM(budget),0) FROM projects")
-        company = await scalar("SELECT COALESCE(SUM(delta),0) FROM company_ledger")
+        return {
+            "clients": await scalar("SELECT COUNT(*) FROM users"),
+            "active_projects": await scalar(
+                "SELECT COUNT(*) FROM projects WHERE status IN ('new','assigned','in_progress','in_team_heavy','in_team_medium','in_team_fast')"
+            ),
+            "done_projects": await scalar("SELECT COUNT(*) FROM projects WHERE status='done'"),
+            "turnover": await scalar("SELECT COALESCE(SUM(budget),0) FROM projects"),
+            "company": await scalar("SELECT COALESCE(SUM(delta),0) FROM company_ledger"),
+        }
 
-    return {
-        "clients": clients,
-        "active_projects": active_projects,
-        "done_projects": done_projects,
-        "turnover": turnover,
-        "company": company,
-    }
+
+async def pr_stats(user_id: int) -> dict:
+    async with _conn() as db:
+        db.row_factory = aiosqlite.Row
+
+        cur = await db.execute("SELECT COUNT(*) c FROM users WHERE referrer_id=?", (user_id,))
+        clients = (await cur.fetchone())["c"]
+
+        cur = await db.execute(
+            "SELECT COUNT(*) c, COALESCE(SUM(budget),0) s FROM projects WHERE referrer_id=?",
+            (user_id,),
+        )
+        row = await cur.fetchone()
+        orders, total = row["c"], row["s"]
+
+        cur = await db.execute(
+            "SELECT COALESCE(SUM(amount),0) s FROM payouts WHERE telegram_id=? AND role='pr'",
+            (user_id,),
+        )
+        earned = (await cur.fetchone())["s"]
+
+    return {"clients": clients, "orders": orders, "total": total, "earned": earned}
+
+
+# ==========================================
+# DISCOUNTS (15% за клиента от 500 ⭐)
+# ==========================================
 
 async def increment_discount_by_user_id(user_id: int) -> int:
     async with _conn() as db:
         await db.execute(
-            "UPDATE users SET discount_percent = COALESCE(discount_percent, 0) + 1 WHERE telegram_id = ?",
+            "UPDATE users SET discount_percent = COALESCE(discount_percent, 0) + 15 WHERE telegram_id = ?",
             (user_id,)
         )
         await db.commit()
         cur = await db.execute("SELECT discount_percent FROM users WHERE telegram_id = ?", (user_id,))
         row = await cur.fetchone()
-        return row[0] if row and row[0] else 1
+        return row[0] if row and row[0] else 15
+
 
 async def get_user_discount(user_id: int) -> int:
     async with _conn() as db:
