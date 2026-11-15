@@ -2,7 +2,7 @@ from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMar
 
 
 # ==========================================
-# ГЛАВНЫЕ МЕНЮ
+# ГЛАВНЫЕ МЕНЮ (Reply)
 # ==========================================
 
 def main_menu() -> ReplyKeyboardMarkup:
@@ -36,11 +36,15 @@ def admin_menu() -> ReplyKeyboardMarkup:
         keyboard=[
             [
                 KeyboardButton(text="📋 Список проектов"),
-                KeyboardButton(text="👥 Менеджеры"),
+                KeyboardButton(text="👨‍💻 Разработчики"),
             ],
             [
+                KeyboardButton(text="👥 Менеджеры"),
                 KeyboardButton(text="📈 Статистика бота"),
+            ],
+            [
                 KeyboardButton(text="⚙️ Настройки"),
+                KeyboardButton(text="🏖 Управление отпусками"),
             ],
             [
                 KeyboardButton(text="🔙 Главное меню"),
@@ -51,27 +55,21 @@ def admin_menu() -> ReplyKeyboardMarkup:
     )
 
 
+def cancel_kb() -> ReplyKeyboardMarkup:
+    """Кнопка отмены для анкет."""
+    return ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text="❌ Отмена")]],
+        resize_keyboard=True,
+        input_field_placeholder="Нажмите для отмены",
+    )
+
+
 # ==========================================
 # INLINE КЛАВИАТУРЫ (Кнопки под сообщениями)
 # ==========================================
 
-def project_actions_kb(project_id: int) -> InlineKeyboardMarkup:
-    """Действия с проектом."""
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(text="⚙️ Назначить", callback_data=f"proj_assign_{project_id}"),
-                InlineKeyboardButton(text="✅ Завершить", callback_data=f"proj_complete_{project_id}"),
-            ],
-            [
-                InlineKeyboardButton(text="💸 Неоплачено", callback_data=f"proj_unpaid_{project_id}"),
-                InlineKeyboardButton(text="❌ Отменить", callback_data=f"proj_cancel_{project_id}"),
-            ],
-        ]
-    )
-
-
 def dev_moderation_kb(user_id: int) -> InlineKeyboardMarkup:
+    """Кнопки для одобрения/отклонения разработчика."""
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
@@ -82,19 +80,8 @@ def dev_moderation_kb(user_id: int) -> InlineKeyboardMarkup:
     )
 
 
-def pr_moderation_kb(user_id: int) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(text="✅ Одобрить", callback_data=f"pr_approve_{user_id}"),
-                InlineKeyboardButton(text="❌ Отклонить", callback_data=f"pr_reject_{user_id}"),
-            ]
-        ]
-    )
-
-
 def partner_moderation_kb(user_id: int) -> InlineKeyboardMarkup:
-    """Кнопки для одобрения партнёра (только для CEO)."""
+    """Кнопки для одобрения/отклонения партнёра (только для CEO)."""
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
@@ -117,9 +104,29 @@ def yes_no_kb(action: str) -> InlineKeyboardMarkup:
     )
 
 
-def cancel_kb() -> ReplyKeyboardMarkup:
-    """Кнопка отмены для анкет."""
-    return ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text="❌ Отмена")]],
-        resize_keyboard=True,
+def managers_list_kb(managers: list) -> InlineKeyboardMarkup:
+    """Клавиатура со списком менеджеров для выбора в отпуске."""
+    keyboard = []
+    for m in managers:
+        # m - это словарь из БД с ключами 'telegram_id' и 'username'/'full_name'
+        name = m.get("username") or m.get("full_name") or str(m["telegram_id"])
+        keyboard.append([
+            InlineKeyboardButton(text=f"👤 {name}", callback_data=f"vacation_select_{m['telegram_id']}")
+        ])
+    keyboard.append([InlineKeyboardButton(text="❌ Отмена", callback_data="vacation_cancel")])
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+
+def project_actions_kb(project_id: int) -> InlineKeyboardMarkup:
+    """Действия с проектом для менеджера."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="⚙️ Назначить команду", callback_data=f"proj_assign_{project_id}"),
+                InlineKeyboardButton(text="✅ Завершить", callback_data=f"proj_complete_{project_id}"),
+            ],
+            [
+                InlineKeyboardButton(text="❌ Отменить проект", callback_data=f"proj_cancel_{project_id}"),
+            ],
+        ]
     )
