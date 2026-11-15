@@ -1,40 +1,64 @@
 from aiogram.fsm.state import State, StatesGroup
 
 
+# ==========================================
+# АНКЕТА КЛИЕНТА (ЗАКАЗ)
+# ==========================================
 class ClientForm(StatesGroup):
-    """Анкета клиента: заказ разработки."""
-    title = State()
-    description = State()
-    budget = State()
-    contact = State()
-    country = State()
-    age = State()
-    sam = State()
+    title = State()       # Название проекта
+    description = State() # ТЗ
+    budget = State()      # Бюджет
+    contact = State()     # Контакт (юзернейм или телефон)
+    country = State()     # Страна
+    age = State()         # Возраст
+    sam = State()         # Самозанятый (Да/Нет)
 
 
+# ==========================================
+# АНКЕТА РАЗРАБОТЧИКА (ВСТУПАЮЩИЙ)
+# ==========================================
 class DevForm(StatesGroup):
-    """Анкета разработчика."""
-    name = State()
-    age = State()
-    lang = State()
-    projects = State()
-    sam = State()
+    name = State()        # Имя
+    age = State()         # Возраст
+    lang = State()        # Языки программирования
+    projects = State()    # Портфолио / Проекты
+    hours = State()       # Сколько часов готов уделять
+    goal = State()        # Цель (Заработок или Опыт)
+    sam = State()         # Самозанятый (Да/Нет)
 
 
+# ==========================================
+# АНКЕТА ПАРТНЁРА
+# ==========================================
 class PartnerForm(StatesGroup):
-    """Анкета партнёра (заявка уходит лично CEO)."""
-    name = State()
-    info = State()
-    offer = State()
+    name = State()        # Имя или название компании
+    info = State()        # Чем занимаетесь
+    offer = State()       # Что предлагаете
+    country = State()     # Страна
+    age = State()         # Возраст
+    contact = State()     # Контакт
 
 
+# ==========================================
+# ПОДДЕРЖКА
+# ==========================================
 class SupportForm(StatesGroup):
-    """Тикет в поддержку."""
-    waiting_message = State()
+    waiting_message = State() # Ожидание текста проблемы
 
 
+# ==========================================
+# НАЗНАЧЕНИЕ КОМАНДЫ НА ПРОЕКТ
+# ==========================================
 class AssignForm(StatesGroup):
-    """Назначение команды на проект (тестировщика больше нет)."""
-    senior = State()
-    medium1 = State()
-    medium2 = State()
+    senior = State()      # ID Senior разработчика
+    medium1 = State()     # ID первого Medium
+    medium2 = State()     # ID второго Medium
+
+
+# ==========================================
+# УПРАВЛЕНИЕ ОТПУСКАМИ МЕНЕДЖЕРОВ
+# ==========================================
+class VacationForm(StatesGroup):
+    select_manager = State() # Выбор менеджера из списка
+    start_date = State()     # Дата начала отпуска
+    end_date = State()       # Дата конца отпуска
