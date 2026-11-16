@@ -20,6 +20,44 @@ router = Router()
 # ПРОВЕРКИ ПРАВ
 # ==========================================
 
+
+# ==========================================
+# МАССОВАЯ РАССЫЛКА
+# ==========================================
+
+@router.message(Command("broadcast"))
+async def cmd_broadcast(message: Message):
+    """Массовая рассылка всем пользователям бота."""
+    if message.from_user.id != config.owner_id:
+        return
+    
+    # Разделяем команду и текст (поддерживает переносы строк)
+    parts = message.text.split(maxsplit=1)
+    if len(parts) < 2:
+        return await message.answer("⚠️ Использование: <code>/broadcast &lt;текст рассылки&gt;</code>", parse_mode="HTML")
+    
+    text_to_send = parts[1]
+    
+    await message.answer("⏳ Запуск рассылки... Это может занять время.")
+    
+    # Получаем всех пользователей из БД
+    async with db._conn() as conn:
+        import aiosqlite
+        conn.row_factory = aiosqlite.Row
+        cur = await conn.execute("SELECT telegram_id FROM users")
+        users = await cur.fetchall()
+    
+    sent = 0
+    failed = 0
+    
+    for u in users:
+        try:
+            await message.bot.send_message(u["telegram_id"], text_to_send, parse_mode="HTML")
+            sent += 1
+        except Exception:
+            failed += 1
+            
+    await message.answer(f"✅ <b>Рассылка завершена!</b>\n\n📤 Отправлено: <b>{sent}</b>\n❌ Ошибок (заблокировали бота): <b>{failed}</b>", parse_mode="HTML")
 async def is_admin(user_id: int) -> bool:
     return user_id == config.owner_id or await db.has_active_role(user_id, "manager")
 
