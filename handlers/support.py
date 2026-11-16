@@ -1,5 +1,6 @@
 import logging
-from aiogram import Router, F
+import re
+from aiogram import Router, F, Bot
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 
@@ -18,6 +19,10 @@ async def _check_cancel(message: Message, state: FSMContext) -> bool:
         return True
     return False
 
+# ==========================================
+# 1. КЛИЕНТ ПИШЕТ В ПОДДЕРЖКУ
+# ==========================================
+
 @router.message(SupportForm.waiting_message)
 async def process_message(message: Message, state: FSMContext):
     try:
@@ -26,42 +31,68 @@ async def process_message(message: Message, state: FSMContext):
             return await message.answer("⚠️ Пожалуйста, опишите проблему текстом.", reply_markup=cancel_kb())
         
         user_id = message.from_user.id
-        username = message.from_user.username
-        user_link = f"<a href=\"tg://user?id={user_id}\">{username or 'Профиль'}</a>"
+        username = message.from_user.username or "Нет username"
+        user_link = f"<a href=\"tg://user?id={user_id}\">{username}</a>"
         
-        # 1. Создаем тикет в базе данных
-        ticket_id = await db.create_ticket(user_id, message.text.strip())
         await state.clear()
         
-        # 2. Отвечаем клиенту
+        # Отвечаем клиенту
         await message.answer(
-            f"✅ <b>Ваше обращение #{ticket_id} принято!</b>\n\n"
-            f"Хелпер SYNTH ответит вам в личных сообщениях в ближайшее время.\n"
-            f"<i>Чтобы отменить ожидание, нажмите /cancel</i>",
+            f"✅ <b>Сообщение принято!</b>\n\n"
+            f"Оператор SYNTH ответит вам в личных сообщениях.\n"
+            f"<i>Чтобы продолжить диалог, просто пишите боту.</i>",
             parse_mode="HTML",
             reply_markup=main_menu()
         )
 
-        # 3. Уведомление в группу поддержки
-        notification = (
-            f"🆘 <b>Новый тикет поддержки #{ticket_id}!</b>\n\n"
+        # Формируем сообщение для группы поддержки с ID клиента в конце
+        support_text = (
+            f"🆘 <b>Новое сообщение в поддержку!</b>\n\n"
             f"👤 <b>От:</b> {user_link} (<code>{user_id}</code>)\n"
-            f"📝 <b>Сообщение:</b> {message.text.strip()}\n\n"
-            f"<i>Чтобы ответить клиенту, используйте команду:</i>\n"
-            f"<code>/msg {user_id} Ваш ответ</code>"
+            f"💬 <b>Текст:</b> {message.text.strip()}\n\n"
+            f"---\n🆔 USER_ID: {user_id}"
         )
         
         try:
-            await message.bot.send_message(config.support_group_id, notification, parse_mode="HTML")
+            await message.bot.send_message(config.support_group_id, support_text, parse_mode="HTML")
         except Exception as e:
-            logger.error(f"Ошибка отправки тикета в группу поддержки: {e}")
-            # Фоллбэк: если группа поддержки недоступна, шлем CEO
-            await message.bot.send_message(
-                config.owner_id, 
-                notification + "\n\n⚠️ Бот не смог написать в группу поддержки!", 
-                parse_mode="HTML"
-            )
+            logger.error(f"Ошибка отправки в Support группу: {e}")
+            await message.bot.send_message(config.owner_id, support_text + "\n\n⚠️ Не удалось отправить в группу Support!", parse_mode="HTML")
 
     except Exception as e:
         logger.error(f"КРИТИЧЕСКАЯ ОШИБКА В SUPPORT: {e}")
-        await message.answer("❌ Произошла техническая ошибка. Попробуйте позже.", reply_markup=main_menu())
+        await message.answer("❌ Произошла техническая ошибка.", reply_markup=main_menu())
+
+# ==========================================
+# 2. ХЕЛПЕР/МЕНЕДЖЕР ОТВЕЧАЕТ В ГРУППЕ (МОСТ)
+# ==========================================
+
+@router.message(F.chat.id == config.support_group_id, F.reply_to_message)
+async def support_reply_bridge(message: Message, bot: Bot):
+    """Перехватывает ответ хелпера на сообщение бота и отправляет его клиенту."""
+    # Проверяем, что ответ идет на сообщение от бота
+    if not message.reply_to_message.from_user or message.reply_to_message.from_user.id != bot.id:
+        return
+    
+    # Ищем ID клиента в тексте исходного сообщения
+    original_text = message.reply_to_message.text or message.reply_to_message.caption
+    if not original_text or "🆔 USER_ID:" not in original_text:
+        return
+
+    # Извлекаем ID (берем число после "🆔 USER_ID:")
+    match = re.search(r"🆔 USER_ID:\s*(\d+)", original_text)
+    if not match:
+        return
+    
+    target_user_id = int(match.group(1))
+
+    try:
+        await bot.send_message(
+            target_user_id,
+            f"💬 <b>Ответ от поддержки SYNTH:</b>\n\n{message.text}",
+            parse_mode="HTML"
+        )
+        # Ставим реакцию или просто молча подтверждаем (чтобы не спамить в чат)
+    except Exception as e:
+        logger.error(f"Ошибка отправки ответа клиенту {target_user_id}: {e}")
+        await message.answer(f"❌ Не удалось доставить сообщение пользователю <code>{target_user_id}</code>. Возможно, он заблокировал бота.", parse_mode="HTML")
