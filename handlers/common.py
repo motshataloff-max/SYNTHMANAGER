@@ -6,7 +6,7 @@ from aiogram.types import Message
 import db
 import texts
 from keyboards import main_menu, admin_menu, cancel_kb
-from states import ClientForm, DevForm, PartnerForm, SupportForm, VacationForm
+from states import ClientForm, DevForm, PartnerForm, SupportForm, VacationForm, BroadcastForm
 from config import config
 
 router = Router()
@@ -19,14 +19,13 @@ class BanMiddleware(BaseMiddleware):
     async def __call__(self, handler, event, data):
         if hasattr(event, "from_user") and event.from_user:
             user_id = event.from_user.id
-            # CEO никогда не банится
             if user_id != config.owner_id and await db.is_banned(user_id):
                 if hasattr(event, "answer"):
                     try:
                         await event.answer("🚫 Ваш аккаунт заблокирован администрацией SYNTH.")
                     except Exception:
                         pass
-                return  # Прерываем обработку
+                return
         return await handler(event, data)
 
 router.message.middleware(BanMiddleware())
@@ -81,7 +80,6 @@ BOSS_COMMANDS = (
     "<i>Напишите /help для полного списка</i>"
 )
 
-# Список кнопок меню, которые НЕ должны пересылаться в поддержку
 MENU_BUTTONS = {
     "🛒 Заказать разработку", "👨‍💻 Стать разработчиком", "🤝 Стать партнёром",
     "🔗 Моя ссылка на скидку", "📊 Моя статистика", "ℹ️ О нас", "🆘 Поддержка",
@@ -228,7 +226,6 @@ async def menu_support(message: Message, state: FSMContext, bot: Bot):
     await state.clear()
     await state.set_state(SupportForm.waiting_message)
     
-    # Проверяем, есть ли уже открытый тикет
     existing_ticket = await db.find_open_ticket_by_user(message.from_user.id)
     if existing_ticket:
         return await message.answer(
@@ -349,7 +346,7 @@ async def admin_vacation_button(message: Message, state: FSMContext):
 
 @router.message(F.text == "👥 Управление командами")
 async def manage_teams_btn(message: Message):
-    if not message.from_user.id == config.owner_id:
+    if message.from_user.id != config.owner_id:
         return
     teams = await db.get_all_teams()
     from keyboards import manage_teams_kb
@@ -360,7 +357,6 @@ async def manage_teams_btn(message: Message):
 async def start_broadcast_btn(message: Message, state: FSMContext):
     if message.from_user.id != config.owner_id:
         return
-    from states import BroadcastForm
     await state.set_state(BroadcastForm.waiting_message)
     await message.answer("📢 <b>Режим рассылки активирован.</b>\n\nОтправьте текст или перешлите сообщение.\nДля отмены нажмите /cancel", parse_mode="HTML")
 
@@ -402,7 +398,6 @@ async def cmd_ban(message: Message):
     await db.ban_user(user_id, reason)
     await message.answer(f"🚫 Пользователь <code>{user_id}</code> забанен.\nПричина: {reason}", parse_mode="HTML")
     
-    # Уведомляем забаненного
     try:
         await message.bot.send_message(user_id, f"🚫 <b>Ваш аккаунт заблокирован администрацией SYNTH.</b>\nПричина: {reason}", parse_mode="HTML")
     except Exception:
@@ -430,25 +425,23 @@ async def cmd_unban(message: Message):
 # ==========================================
 # АВТО-ВОЗВРАТ В ПОДДЕРЖКУ
 # ==========================================
-@router.message(
-    F.text 
-    & ~F.text.startswith("/") 
-    & ~F.text.in_(MENU_BUTTONS) 
-    & StateFilter(None)  # Только если нет активного FSM-состояния
-)
+@router.message(F.text, ~F.text.startswith("/"), StateFilter(None))
 async def auto_support_forward(message: Message, bot: Bot):
     """Если у клиента есть открытый тикет и он пишет произвольный текст — пересылаем в тему."""
     user_id = message.from_user.id
     
-    # Пропускаем админов и менеджеров (они не клиенты)
+    # Пропускаем админов и менеджеров
     if user_id == config.owner_id or await db.has_active_role(user_id, "manager"):
+        return
+    
+    # Пропускаем, если это кнопка меню
+    if message.text in MENU_BUTTONS:
         return
     
     ticket = await db.find_open_ticket_by_user(user_id)
     if not ticket or not ticket["topic_id"]:
-        return  # Нет открытого тикета — игнорируем
+        return
     
-    # Пересылаем в тему
     try:
         await bot.send_message(
             config.support_group_id,
