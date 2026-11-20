@@ -7,7 +7,7 @@ from aiogram import F, Router, Bot
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import Message, CallbackQuery, FSInputFile
+from aiogram.types import Message, CallbackQuery, FSInputFile, InlineKeyboardMarkup, InlineKeyboardButton
 
 import db
 from config import config
@@ -28,13 +28,6 @@ async def is_ceo(user_id: int) -> bool:
 # ==========================================
 # ГЛОБАЛЬНАЯ РАССЫЛКА
 # ==========================================
-@router.message(Command("broadcast"))
-@router.message(F.text == "📢 Глобальная рассылка")
-async def start_broadcast(message: Message, state: FSMContext):
-    if not await is_ceo(message.from_user.id): return
-    await state.set_state(BroadcastForm.waiting_message)
-    await message.answer("📢 <b>Режим рассылки активирован.</b>\n\nОтправьте текст или перешлите сообщение, которое нужно разослать всем пользователям бота.\nДля отмены нажмите /cancel", parse_mode="HTML")
-
 @router.message(BroadcastForm.waiting_message)
 async def process_broadcast(message: Message, state: FSMContext, bot: Bot):
     if message.text and message.text.lower() == "/cancel":
@@ -67,12 +60,6 @@ async def process_broadcast(message: Message, state: FSMContext, bot: Bot):
 # ==========================================
 # УПРАВЛЕНИЕ КОМАНДАМИ (CEO)
 # ==========================================
-@router.message(F.text == "👥 Управление командами")
-async def manage_teams_btn(message: Message):
-    if not await is_ceo(message.from_user.id): return
-    teams = await db.get_all_teams()
-    await message.answer("👥 <b>Управление статусами команд:</b>\nНажмите на команду, чтобы изменить её статус.", parse_mode="HTML", reply_markup=manage_teams_kb(teams))
-
 @router.callback_query(F.data.startswith("team_cycle_"))
 async def cycle_team_status(callback: CallbackQuery):
     if not await is_ceo(callback.from_user.id): return await callback.answer()
@@ -80,7 +67,6 @@ async def cycle_team_status(callback: CallbackQuery):
     teams = await db.get_all_teams()
     current = next((t["status"] for t in teams if t["team_name"] == team_name), "free")
     
-    # Цикл статусов: free -> busy -> resting -> incomplete -> free
     cycle = {"free": "busy", "busy": "resting", "resting": "incomplete", "incomplete": "free"}
     new_status = cycle.get(current, "free")
     
@@ -120,14 +106,12 @@ async def confirm_assign_team(callback: CallbackQuery, state: FSMContext, bot: B
     project_id = data["project_id"]
     await state.clear()
 
-    # Получаем chat_id команды из БД
     teams = await db.get_all_teams()
     team_chat_id = next((t["chat_id"] for t in teams if t["team_name"] == team_name), None)
     
     if not team_chat_id or team_chat_id == 0:
         return await callback.message.edit_text(f"⚠️ Для команды <b>{team_name}</b> не указан ID чата! CEO должен настроить команды.", parse_mode="HTML")
 
-    # Пересылаем проект в чат команды
     project = await db.get_project(project_id)
     notification = (
         f"🔥 <b>Новый проект для команды {team_name}!</b>\n\n"
@@ -139,14 +123,37 @@ async def confirm_assign_team(callback: CallbackQuery, state: FSMContext, bot: B
     )
     
     try:
+        # 1. Отправляем в чат команды
         await bot.send_message(team_chat_id, notification, parse_mode="HTML")
-        # Меняем статус команды на "Занята" и статус проекта
+        
+        # 2. Генерируем ссылку-приглашение для клиента
+        invite_link = None
+        try:
+            link_obj = await bot.create_chat_invite_link(chat_id=team_chat_id, creates_join_request=False)
+            invite_link = link_obj.invite_link
+        except Exception as e:
+            logger.error(f"Не удалось создать ссылку-приглашение: {e}")
+
+        # 3. Меняем статусы в БД
         await db.update_team_status(team_name, "busy")
         await db.set_project_status(project_id, "assigned", team_name=team_name)
         
         await callback.message.edit_text(f"✅ Проект #{project_id} передан в команду <b>{team_name}</b>.\nКоманда помечена как 🔴 Занята.", parse_mode="HTML")
+        
+        # 4. Отправляем клиенту уведомление и ссылку
+        client_id = project["client_id"]
+        client_msg = f"✅ <b>Ваш проект #{project_id} передан в работу!</b>\n\n"
+        client_msg += f"Команда <b>{team_name}</b> уже изучает ваше ТЗ.\n\n"
+        if invite_link:
+            client_msg += f"🔗 <b>Мы добавили вас в закрытый чат с разработчиками.</b>\nНажмите кнопку ниже, чтобы присоединиться и обсуждать детали напрямую:"
+            kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="💬 Войти в чат с командой", url=invite_link)]])
+            await bot.send_message(client_id, client_msg, parse_mode="HTML", reply_markup=kb)
+        else:
+            client_msg += "Менеджер скоро свяжется с вами для уточнения деталей."
+            await bot.send_message(client_id, client_msg, parse_mode="HTML")
+            
     except Exception as e:
-        await callback.message.edit_text(f"❌ Ошибка отправки в чат команды: {e}", parse_mode="HTML")
+        await callback.message.edit_text(f"❌ Ошибка: {e}", parse_mode="HTML")
     await callback.answer()
 
 @router.callback_query(F.data == "assign_cancel")
@@ -160,37 +167,73 @@ async def ignore_callback(callback: CallbackQuery):
     await callback.answer("Эта команда сейчас недоступна.", show_alert=True)
 
 # ==========================================
-# УМНАЯ ПОДДЕРЖКА (ОТВЕТ В ГРУППЕ)
+# УПРАВЛЕНИЕ ПРОЕКТАМИ И СТАТУСАМИ
 # ==========================================
-@router.message(F.chat.id == config.support_group_id & F.reply_to_message)
-async def support_reply_in_group(message: Message, bot: Bot):
-    """Если хелпер отвечает на сообщение в группе поддержки, бот пересылает ответ клиенту."""
-    if not await is_admin(message.from_user.id) and not await db.has_active_role(message.from_user.id, "helper"):
-        return # Отвечать могут только админы и хелперы
-
-    reply_msg = message.reply_to_message
-    # Проверяем, что это пересланное от бота сообщение (обычно бот пишет "От: ...")
-    if not reply_msg or not reply_msg.from_user or reply_msg.from_user.id != bot.id:
-        return
-
-    # Пытаемся вытащить ID пользователя из текста пересланного сообщения
-    # Формат был: "🆘 Новый тикет... От: ... (123456789)"
-    text = reply_msg.text or reply_msg.caption or ""
-    import re
-    match = re.search(r"\((\d{5,15})\)", text)
-    if not match:
-        return await message.answer("⚠️ Не удалось найти ID пользователя в исходном сообщении.")
+@router.message(Command("complete"))
+async def complete_project(message: Message, bot: Bot):
+    if not await is_admin(message.from_user.id): return
+    parts = message.text.split()
+    if len(parts) < 2 or not parts[1].isdigit():
+        return await message.answer("⚠️ Использование: <code>/complete &lt;project_id&gt;</code>", parse_mode="HTML")
     
-    user_id = int(match.group(1))
+    project_id = int(parts[1])
+    project = await db.get_project(project_id)
+    if not project: return await message.answer("Проект не найден.")
+
+    if message.from_user.id != config.owner_id:
+        if project["status"] in ["assigned", "in_progress", "in_team_heavy", "in_team_medium", "in_team_fast"]:
+            return await message.answer("⛔ Этот проект уже в работе. Завершить его может только CEO.")
+
+    if project["status"] == "done":
+        return await message.answer("Проект уже завершён.")
+
+    budget = project["budget"]
+    company_share = budget * 20 // 100
+    await db.add_company_delta(company_share, "project_completion", project_id)
     
-    try:
-        await bot.send_message(user_id, f"💬 <b>Ответ поддержки SYNTH:</b>\n\n{message.text}", parse_mode="HTML")
-        await message.answer(f"✅ Ответ доставлен пользователю <code>{user_id}</code>.", parse_mode="HTML")
-    except Exception as e:
-        await message.answer(f"❌ Ошибка отправки: {e}")
+    # ПРОВЕРКА РЕФЕРАЛЬНОЙ СИСТЕМЫ (15% от 500 ⭐)
+    if project["referrer_id"] and budget >= 500:
+        new_discount = await db.increment_discount_by_user_id(project["referrer_id"])
+        try:
+            await bot.send_message(
+                project["referrer_id"], 
+                f"🎉 Ваш реферал завершил проект #{project_id} на сумму {budget} ⭐!\nВаша скидка теперь: <b>{new_discount}%</b>",
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
+
+    await db.set_project_status(project_id, "done")
+    
+    # Освобождаем команду, если она была назначена
+    if project.get("assigned_team"):
+        await db.update_team_status(project["assigned_team"], "free")
+        
+    await message.answer(f"✅ Проект #{project_id} завершён. Компания получила {company_share} ⭐. Команда освобождена.")
+
+@router.message(Command("status"))
+async def set_status(message: Message):
+    if not await is_ceo(message.from_user.id): return
+    parts = message.text.split()
+    if len(parts) < 3 or not parts[1].isdigit():
+        return await message.answer("⚠️ Использование: <code>/status &lt;id&gt; done|unpaid|new|delete</code>", parse_mode="HTML")
+    
+    project_id = int(parts[1])
+    value = parts[2].lower()
+    project = await db.get_project(project_id)
+    
+    if message.from_user.id != config.owner_id and project and project["status"] in ["assigned", "in_progress", "in_team_heavy", "in_team_medium", "in_team_fast"]:
+        return await message.answer("⛔ Проект в работе. Изменение статуса доступно только CEO.")
+
+    if value == "delete":
+        await db.delete_project(project_id)
+        return await message.answer(f"🗑 Проект #{project_id} полностью удалён из базы данных.")
+    
+    await db.set_project_status(project_id, value)
+    await message.answer(f"✅ Статус проекта #{project_id} изменён на: <b>{value}</b>", parse_mode="HTML")
 
 # ==========================================
-# СТАРЫЕ КОМАНДЫ (ОСТАВЛЕНЫ ДЛЯ СОВМЕСТИМОСТИ)
+# ДОПОЛНИТЕЛЬНЫЕ КОМАНДЫ CEO
 # ==========================================
 @router.message(Command("msg"))
 async def cmd_msg(message: Message, bot: Bot):
