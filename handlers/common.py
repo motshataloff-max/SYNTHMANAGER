@@ -1,5 +1,5 @@
-from aiogram import Router, F
-from aiogram.filters import Command, CommandStart, CommandObject
+from aiogram import Router, F, Bot, BaseMiddleware
+from aiogram.filters import Command, CommandStart, CommandObject, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 
@@ -11,8 +11,30 @@ from config import config
 
 router = Router()
 
-# ---------- Тексты команд для разных ролей ----------
+# ==========================================
+# MIDDLEWARE: ПРОВЕРКА НА БАН
+# ==========================================
+class BanMiddleware(BaseMiddleware):
+    """Блокирует забаненных пользователей на уровне всего роутера."""
+    async def __call__(self, handler, event, data):
+        if hasattr(event, "from_user") and event.from_user:
+            user_id = event.from_user.id
+            # CEO никогда не банится
+            if user_id != config.owner_id and await db.is_banned(user_id):
+                if hasattr(event, "answer"):
+                    try:
+                        await event.answer("🚫 Ваш аккаунт заблокирован администрацией SYNTH.")
+                    except Exception:
+                        pass
+                return  # Прерываем обработку
+        return await handler(event, data)
 
+router.message.middleware(BanMiddleware())
+router.callback_query.middleware(BanMiddleware())
+
+# ==========================================
+# ТЕКСТЫ КОМАНД
+# ==========================================
 USER_COMMANDS = (
     "📌 <b>Что я умею:</b>\n\n"
     "• 🛒 <b>Заказать разработку</b> — оставьте заявку\n"
@@ -40,7 +62,10 @@ BOSS_COMMANDS = (
     "📌 <b>Что я умею (CEO):</b>\n\n"
     "👥 <b>Персонал:</b>\n"
     "• <code>/add_pr &lt;id&gt;</code> — назначить пиарщика\n"
-    "• <code>/add_manager &lt;id&gt;</code> — назначить менеджера\n\n"
+    "• <code>/add_manager &lt;id&gt;</code> — назначить менеджера\n"
+    "• <code>/add_helper &lt;id&gt;</code> — назначить хелпера\n"
+    "• <code>/ban &lt;id&gt; [причина]</code> — забанить пользователя\n"
+    "• <code>/unban &lt;id&gt;</code> — разбанить пользователя\n\n"
     "📊 <b>Статистика:</b>\n"
     "• <code>/stats</code> — общая сводка\n"
     "• <code>/ref_stats &lt;id&gt;</code> — статистика по рефералу\n\n"
@@ -52,12 +77,18 @@ BOSS_COMMANDS = (
     "• <code>/msg &lt;id&gt; &lt;текст&gt;</code> — сообщение клиенту\n\n"
     "💾 <b>База данных:</b>\n"
     "• <code>/backup_db</code> — бэкап БД в канал\n"
-    "• <code>/restore_db</code> — восстановить из файла\n\n"
-    "🤖 <b>Бот:</b>\n"
-    "• <code>/set_about &lt;текст&gt;</code>\n"
     "• <code>/restart_bot</code>\n\n"
     "<i>Напишите /help для полного списка</i>"
 )
+
+# Список кнопок меню, которые НЕ должны пересылаться в поддержку
+MENU_BUTTONS = {
+    "🛒 Заказать разработку", "👨‍💻 Стать разработчиком", "🤝 Стать партнёром",
+    "🔗 Моя ссылка на скидку", "📊 Моя статистика", "ℹ️ О нас", "🆘 Поддержка",
+    "🔙 Главное меню", "📈 Статистика бота", "📋 Список проектов", "👨‍💻 Разработчики",
+    "👥 Менеджеры", "🏖 Управление отпусками", "👥 Управление командами",
+    "📢 Глобальная рассылка", "⚙️ Настройки",
+}
 
 
 async def _welcome_text(uid: int) -> str:
@@ -75,9 +106,8 @@ async def _welcome_kb(uid: int):
 
 
 # ==========================================
-# КОМАНДЫ /START, /HELP, /CANCEL
+# /START, /HELP, /CANCEL
 # ==========================================
-
 @router.message(CommandStart(deep_link=True))
 async def start_with_link(message: Message, command: CommandObject, state: FSMContext):
     await state.clear()
@@ -129,7 +159,6 @@ async def cmd_help(message: Message):
 # ==========================================
 # КНОПКИ ГЛАВНОГО МЕНЮ
 # ==========================================
-
 async def _check_cancel(message: Message, state: FSMContext) -> bool:
     if message.text and any(word in message.text.lower() for word in ["отмена", "cancel", "❌ отмена"]):
         await state.clear()
@@ -194,10 +223,21 @@ async def about(message: Message, state: FSMContext):
 
 
 @router.message(F.text == "🆘 Поддержка")
-async def menu_support(message: Message, state: FSMContext):
+async def menu_support(message: Message, state: FSMContext, bot: Bot):
     if await _check_cancel(message, state): return
     await state.clear()
     await state.set_state(SupportForm.waiting_message)
+    
+    # Проверяем, есть ли уже открытый тикет
+    existing_ticket = await db.find_open_ticket_by_user(message.from_user.id)
+    if existing_ticket:
+        return await message.answer(
+            f"🆘 <b>У вас уже есть открытый тикет #{existing_ticket['id']}.</b>\n\n"
+            "Просто напишите сообщение сюда — оно будет переслано хелперу.",
+            parse_mode="HTML",
+            reply_markup=main_menu()
+        )
+    
     await message.answer(texts.SUPPORT_ASK_MSG, parse_mode="HTML", reply_markup=cancel_kb())
 
 
@@ -226,7 +266,6 @@ async def my_stats(message: Message, state: FSMContext):
 # ==========================================
 # АДМИНСКИЕ КНОПКИ
 # ==========================================
-
 @router.message(F.text == "🔙 Главное меню")
 async def back_to_main(message: Message, state: FSMContext):
     await state.clear()
@@ -308,6 +347,24 @@ async def admin_vacation_button(message: Message, state: FSMContext):
     await message.answer("👤 <b>Выберите менеджера для управления отпуском:</b>", reply_markup=managers_list_kb(managers), parse_mode="HTML")
 
 
+@router.message(F.text == "👥 Управление командами")
+async def manage_teams_btn(message: Message):
+    if not message.from_user.id == config.owner_id:
+        return
+    teams = await db.get_all_teams()
+    from keyboards import manage_teams_kb
+    await message.answer("👥 <b>Управление статусами команд:</b>\nНажмите на команду, чтобы изменить её статус.", parse_mode="HTML", reply_markup=manage_teams_kb(teams))
+
+
+@router.message(F.text == "📢 Глобальная рассылка")
+async def start_broadcast_btn(message: Message, state: FSMContext):
+    if message.from_user.id != config.owner_id:
+        return
+    from states import BroadcastForm
+    await state.set_state(BroadcastForm.waiting_message)
+    await message.answer("📢 <b>Режим рассылки активирован.</b>\n\nОтправьте текст или перешлите сообщение.\nДля отмены нажмите /cancel", parse_mode="HTML")
+
+
 @router.message(F.text == "⚙️ Настройки")
 async def admin_settings_button(message: Message):
     if message.from_user.id != config.owner_id:
@@ -317,7 +374,88 @@ async def admin_settings_button(message: Message):
         "• <code>/set_about &lt;текст&gt;</code>\n"
         "• <code>/add_manager &lt;id&gt;</code>\n"
         "• <code>/add_pr &lt;id&gt;</code>\n"
+        "• <code>/add_helper &lt;id&gt;</code>\n"
+        "• <code>/ban &lt;id&gt;</code> / <code>/unban &lt;id&gt;</code>\n"
         "• <code>/backup_db</code> — бэкап БД\n"
         "• <code>/restart_bot</code>",
         parse_mode="HTML",
     )
+
+
+# ==========================================
+# БАН / РАЗБАН (CEO)
+# ==========================================
+@router.message(Command("ban"))
+async def cmd_ban(message: Message):
+    if message.from_user.id != config.owner_id:
+        return
+    parts = message.text.split(maxsplit=2)
+    if len(parts) < 2 or not parts[1].isdigit():
+        return await message.answer("⚠️ Использование: <code>/ban &lt;user_id&gt; [причина]</code>", parse_mode="HTML")
+    
+    user_id = int(parts[1])
+    reason = parts[2] if len(parts) > 2 else "Не указана"
+    
+    if user_id == config.owner_id:
+        return await message.answer("⚠️ Нельзя забанить самого CEO.")
+    
+    await db.ban_user(user_id, reason)
+    await message.answer(f"🚫 Пользователь <code>{user_id}</code> забанен.\nПричина: {reason}", parse_mode="HTML")
+    
+    # Уведомляем забаненного
+    try:
+        await message.bot.send_message(user_id, f"🚫 <b>Ваш аккаунт заблокирован администрацией SYNTH.</b>\nПричина: {reason}", parse_mode="HTML")
+    except Exception:
+        pass
+
+
+@router.message(Command("unban"))
+async def cmd_unban(message: Message):
+    if message.from_user.id != config.owner_id:
+        return
+    parts = message.text.split()
+    if len(parts) < 2 or not parts[1].isdigit():
+        return await message.answer("⚠️ Использование: <code>/unban &lt;user_id&gt;</code>", parse_mode="HTML")
+    
+    user_id = int(parts[1])
+    await db.unban_user(user_id)
+    await message.answer(f"✅ Пользователь <code>{user_id}</code> разбанен.", parse_mode="HTML")
+    
+    try:
+        await message.bot.send_message(user_id, "✅ Ваш аккаунт разблокирован администрацией SYNTH. Добро пожаловать обратно!")
+    except Exception:
+        pass
+
+
+# ==========================================
+# АВТО-ВОЗВРАТ В ПОДДЕРЖКУ
+# ==========================================
+@router.message(
+    F.text 
+    & ~F.text.startswith("/") 
+    & ~F.text.in_(MENU_BUTTONS) 
+    & StateFilter(None)  # Только если нет активного FSM-состояния
+)
+async def auto_support_forward(message: Message, bot: Bot):
+    """Если у клиента есть открытый тикет и он пишет произвольный текст — пересылаем в тему."""
+    user_id = message.from_user.id
+    
+    # Пропускаем админов и менеджеров (они не клиенты)
+    if user_id == config.owner_id or await db.has_active_role(user_id, "manager"):
+        return
+    
+    ticket = await db.find_open_ticket_by_user(user_id)
+    if not ticket or not ticket["topic_id"]:
+        return  # Нет открытого тикета — игнорируем
+    
+    # Пересылаем в тему
+    try:
+        await bot.send_message(
+            config.support_group_id,
+            f"💬 <b>Клиент пишет:</b>\n{message.text}",
+            message_thread_id=ticket["topic_id"],
+            parse_mode="HTML"
+        )
+        await message.answer("📨 Сообщение передано хелперу.")
+    except Exception as e:
+        await message.answer(f"⚠️ Ошибка пересылки: {e}")
