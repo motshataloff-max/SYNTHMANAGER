@@ -44,23 +44,28 @@ CREATE TABLE IF NOT EXISTS settings (
 
 CREATE TABLE IF NOT EXISTS support_tickets (
     id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, message TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'open', created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    status TEXT NOT NULL DEFAULT 'open', topic_id INTEGER,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS vacations (
     manager_id INTEGER PRIMARY KEY, start_date TEXT, end_date TEXT
 );
 
--- НОВАЯ ТАБЛИЦА: Команды разработки
 CREATE TABLE IF NOT EXISTS teams (
     team_name TEXT PRIMARY KEY, chat_id INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'free'
+);
+
+-- НОВАЯ ТАБЛИЦА: Черный список
+CREATE TABLE IF NOT EXISTS banned_users (
+    telegram_id INTEGER PRIMARY KEY, reason TEXT,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
 INSERT OR IGNORE INTO rr_state(id, last_index) VALUES (1, 0);
 INSERT OR IGNORE INTO settings(key, value) VALUES
 ('about', '🇷🇺 SYNTH — российская команда разработчиков. Мы не нанимаем представителей недружественных стран и не ведём с ними сделок. Мы делаем Telegram-ботов, парсеры и Python-скрипты. Работаем за Stars. Качество гарантируем.');
 
--- Инициализация команд (если их еще нет в базе)
 INSERT OR IGNORE INTO teams(team_name, chat_id, status) VALUES ('Heavy', 0, 'free');
 INSERT OR IGNORE INTO teams(team_name, chat_id, status) VALUES ('Medium 1', 0, 'free');
 INSERT OR IGNORE INTO teams(team_name, chat_id, status) VALUES ('Medium 2', 0, 'free');
@@ -75,6 +80,11 @@ async def init(path: str) -> None:
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     async with aiosqlite.connect(DB_PATH) as db:
         await db.executescript(SCHEMA)
+        # Миграция: добавляем topic_id в старые тикеты, если колонки нет
+        try:
+            await db.execute("SELECT topic_id FROM support_tickets LIMIT 1")
+        except Exception:
+            await db.execute("ALTER TABLE support_tickets ADD COLUMN topic_id INTEGER")
         await db.commit()
 
 def _conn():
@@ -150,6 +160,24 @@ async def next_recipient(owner_id: int) -> int:
     return chosen
 
 # ==========================================
+# BANS (ЧЕРНЫЙ СПИСОК)
+# ==========================================
+async def is_banned(user_id: int) -> bool:
+    async with _conn() as db:
+        cur = await db.execute("SELECT 1 FROM banned_users WHERE telegram_id=?", (user_id,))
+        return await cur.fetchone() is not None
+
+async def ban_user(user_id: int, reason: str = "") -> None:
+    async with _conn() as db:
+        await db.execute("INSERT OR REPLACE INTO banned_users(telegram_id, reason) VALUES(?,?)", (user_id, reason))
+        await db.commit()
+
+async def unban_user(user_id: int) -> None:
+    async with _conn() as db:
+        await db.execute("DELETE FROM banned_users WHERE telegram_id=?", (user_id,))
+        await db.commit()
+
+# ==========================================
 # TEAMS (КОМАНДЫ)
 # ==========================================
 async def get_all_teams() -> list[aiosqlite.Row]:
@@ -169,10 +197,41 @@ async def update_team_chat_id(team_name: str, chat_id: int) -> None:
         await db.commit()
 
 # ==========================================
+# SUPPORT TICKETS (С ТЕМАМИ)
+# ==========================================
+async def create_ticket(user_id: int, message: str) -> int:
+    async with _conn() as db:
+        cur = await db.execute("INSERT INTO support_tickets(user_id, message) VALUES(?,?)", (user_id, message))
+        await db.commit()
+        return cur.lastrowid
+
+async def set_ticket_topic(ticket_id: int, topic_id: int) -> None:
+    async with _conn() as db:
+        await db.execute("UPDATE support_tickets SET topic_id=? WHERE id=?", (topic_id, ticket_id))
+        await db.commit()
+
+async def find_ticket_by_topic(topic_id: int) -> Optional[aiosqlite.Row]:
+    async with _conn() as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute("SELECT * FROM support_tickets WHERE topic_id=? ORDER BY id DESC LIMIT 1", (topic_id,))
+        return await cur.fetchone()
+
+async def find_open_ticket_by_user(user_id: int) -> Optional[aiosqlite.Row]:
+    async with _conn() as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute("SELECT * FROM support_tickets WHERE user_id=? AND status='open' ORDER BY id DESC LIMIT 1", (user_id,))
+        return await cur.fetchone()
+
+async def close_ticket(ticket_id: int) -> None:
+    async with _conn() as db:
+        await db.execute("UPDATE support_tickets SET status='closed' WHERE id=?", (ticket_id,))
+        await db.commit()
+
+# ==========================================
 # PROJECTS
 # ==========================================
-async def create_project(client_id: int, title: str, description: str, budget: int, 
-                         contact_info: str, country: str, is_samozanyat: int, 
+async def create_project(client_id: int, title: str, description: str, budget: int,
+                         contact_info: str, country: str, is_samozanyat: int,
                          referrer_id: Optional[int], manager_id: int) -> int:
     async with _conn() as db:
         cur = await db.execute("INSERT INTO projects(client_id, title, description, budget, contact_info, country, is_samozanyat, referrer_id, manager_id) VALUES(?,?,?,?,?,?,?,?,?)",
