@@ -24,7 +24,7 @@ app = Flask(__name__)
 
 @app.route('/')
 def health_check():
-    return "SYNTH Bot is running!", 200
+    return "SYNTH Bot v6.1 is running!", 200
 
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
@@ -44,16 +44,14 @@ def _patch_dns() -> None:
 # ==========================================
 # 3. ФОНОВЫЕ ЗАДАЧИ (ОТЧЁТЫ)
 # ==========================================
-
 async def hourly_report_task(bot: Bot):
-    """Короткая сводка раз в час в группу CEO."""
     while True:
         await asyncio.sleep(3600)
         try:
             stats = await db.general_stats()
             text = (
                 f"🟢 <b>Часовая сводка SYNTH</b>\n"
-                f"🕒 {datetime.utcnow().strftime('%d.%m.%Y %H:%M')} UTC\n\n"
+                f"🕒 {datetime.now().strftime('%d.%m.%Y %H:%M')} UTC\n\n"
                 f"👥 Всего пользователей: <b>{stats['clients']}</b>\n"
                 f"📦 Активных проектов: <b>{stats['active_projects']}</b>\n"
                 f"✅ Завершённых: <b>{stats['done_projects']}</b>\n"
@@ -64,9 +62,7 @@ async def hourly_report_task(bot: Bot):
         except Exception as e:
             logging.error(f"Ошибка часового отчёта: {e}")
 
-
 async def daily_report_task(bot: Bot):
-    """Подробный отчёт файлом каждый день в 04:30 UTC в группу CEO."""
     while True:
         now = datetime.utcnow()
         target = time(4, 30)
@@ -85,7 +81,7 @@ async def daily_report_task(bot: Bot):
             
             lines = [
                 "=" * 50,
-                "📊 ЕЖЕДНЕВНЫЙ ОТЧЁТ SYNTH",
+                f"📊 ЕЖЕДНЕВНЫЙ ОТЧЁТ SYNTH",
                 f"📅 {datetime.utcnow().strftime('%d.%m.%Y %H:%M')} UTC",
                 "=" * 50,
                 "",
@@ -120,49 +116,6 @@ async def daily_report_task(bot: Bot):
         except Exception as e:
             logging.error(f"Ошибка ежедневного отчёта: {e}")
 
-
-async def three_day_report_task(bot: Bot):
-    """Расширенный отчёт файлом раз в 3 дня (72 часа) в канал."""
-    while True:
-        await asyncio.sleep(259200)
-        try:
-            stats = await db.general_stats()
-            pr_list = await db.list_active_by_role("pr")
-            
-            lines = [
-                "=" * 50,
-                "📊 ПОДРОБНЫЙ ОТЧЁТ SYNTH (3 ДНЯ)",
-                f"📅 {datetime.utcnow().strftime('%d.%m.%Y %H:%M')} UTC",
-                "=" * 50,
-                "",
-                "📈 ОБЩАЯ СВОДКА:",
-                f"👥 Всего пользователей: {stats['clients']}",
-                f"📦 Активных проектов: {stats['active_projects']}",
-                f"✅ Завершённых: {stats['done_projects']}",
-                f"💰 Общий оборот: {stats['turnover']} ⭐",
-                f"🏦 Счёт компании: {stats['company']} ⭐",
-                "",
-                "📣 СТАТИСТИКА ПИАРЩИКОВ:",
-            ]
-            
-            for pr in pr_list:
-                try:
-                    s = await db.pr_stats(pr["telegram_id"])
-                    lines.append(f"  👤 {pr['telegram_id']}: клиентов={s['clients']}, заказов={s['orders']}, оборот={s['total']}⭐")
-                except Exception:
-                    pass
-            
-            file_content = "\n".join(lines)
-            file_bytes = file_content.encode("utf-8")
-            
-            await bot.send_document(
-                chat_id=config.ping_chat_id,
-                document=BufferedInputFile(file_bytes, filename=f"synth_3days_{datetime.utcnow().strftime('%Y%m%d')}.txt"),
-                caption="📦 Автоматический отчёт SYNTH за последние 3 дня"
-            )
-        except Exception as e:
-            logging.error(f"Ошибка отчёта за 3 дня: {e}")
-
 # ==========================================
 # 4. ГЛАВНАЯ ФУНКЦИЯ
 # ==========================================
@@ -187,6 +140,7 @@ async def main() -> None:
     )
     dp = Dispatcher(storage=MemoryStorage())
 
+    # Подключаем ВСЕ роутеры
     dp.include_router(common.router)
     dp.include_router(client.router)
     dp.include_router(dev.router)
@@ -205,6 +159,8 @@ async def main() -> None:
         BotCommand(command="assign", description="⚙️ Назначить команду"),
         BotCommand(command="complete", description="✅ Завершить проект"),
         BotCommand(command="status", description="📊 Изменить статус проекта"),
+        BotCommand(command="ban", description="🚫 Забанить пользователя (CEO)"),
+        BotCommand(command="unban", description="✅ Разбанить пользователя (CEO)"),
         BotCommand(command="backup_db", description="💾 Бэкап базы данных"),
         BotCommand(command="restart_bot", description="🔄 Перезапустить бота"),
     ]
@@ -217,9 +173,8 @@ async def main() -> None:
     
     asyncio.create_task(hourly_report_task(bot))
     asyncio.create_task(daily_report_task(bot))
-    asyncio.create_task(three_day_report_task(bot))
     
-    logging.info("🚀 SYNTH Bot started successfully!")
+    logging.info("🚀 SYNTH Bot v6.1 started successfully!")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
