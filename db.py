@@ -56,7 +56,6 @@ CREATE TABLE IF NOT EXISTS teams (
     team_name TEXT PRIMARY KEY, chat_id INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'free'
 );
 
--- НОВАЯ ТАБЛИЦА: Черный список
 CREATE TABLE IF NOT EXISTS banned_users (
     telegram_id INTEGER PRIMARY KEY, reason TEXT,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
@@ -80,7 +79,6 @@ async def init(path: str) -> None:
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     async with aiosqlite.connect(DB_PATH) as db:
         await db.executescript(SCHEMA)
-        # Миграция: добавляем topic_id в старые тикеты, если колонки нет
         try:
             await db.execute("SELECT topic_id FROM support_tickets LIMIT 1")
         except Exception:
@@ -90,9 +88,7 @@ async def init(path: str) -> None:
 def _conn():
     return aiosqlite.connect(DB_PATH)
 
-# ==========================================
-# USERS & ROLES
-# ==========================================
+# USERS
 async def get_or_create_user(tg_user, referrer_id: Optional[int] = None) -> aiosqlite.Row:
     async with _conn() as db:
         db.row_factory = aiosqlite.Row
@@ -113,6 +109,24 @@ async def get_all_users() -> list[int]:
         rows = await cur.fetchall()
         return [r[0] for r in rows]
 
+async def get_user(user_id: int) -> Optional[aiosqlite.Row]:
+    async with _conn() as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute("SELECT * FROM users WHERE telegram_id=?", (user_id,))
+        return await cur.fetchone()
+
+async def find_by_ref_code(code: str) -> Optional[aiosqlite.Row]:
+    async with _conn() as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute("SELECT * FROM users WHERE ref_code=?", (code,))
+        return await cur.fetchone()
+
+async def set_ref_code(user_id: int, code: str) -> None:
+    async with _conn() as db:
+        await db.execute("UPDATE users SET ref_code=? WHERE telegram_id=?", (code, user_id))
+        await db.commit()
+
+# ROLES
 async def get_role(user_id: int, role: str) -> Optional[aiosqlite.Row]:
     async with _conn() as db:
         db.row_factory = aiosqlite.Row
@@ -131,6 +145,12 @@ async def upsert_role(user_id: int, role: str, status: str, level: Optional[str]
 async def has_active_role(user_id: int, role: str) -> bool:
     r = await get_role(user_id, role)
     return bool(r and r["status"] == "active")
+
+async def list_active_by_role(role: str) -> list[aiosqlite.Row]:
+    async with _conn() as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute("SELECT * FROM roles WHERE role=? AND status='active' ORDER BY telegram_id", (role,))
+        return await cur.fetchall()
 
 async def list_managers() -> list[aiosqlite.Row]:
     async with _conn() as db:
@@ -159,9 +179,7 @@ async def next_recipient(owner_id: int) -> int:
         await db.commit()
     return chosen
 
-# ==========================================
-# BANS (ЧЕРНЫЙ СПИСОК)
-# ==========================================
+# BANS
 async def is_banned(user_id: int) -> bool:
     async with _conn() as db:
         cur = await db.execute("SELECT 1 FROM banned_users WHERE telegram_id=?", (user_id,))
@@ -177,9 +195,7 @@ async def unban_user(user_id: int) -> None:
         await db.execute("DELETE FROM banned_users WHERE telegram_id=?", (user_id,))
         await db.commit()
 
-# ==========================================
-# TEAMS (КОМАНДЫ)
-# ==========================================
+# TEAMS
 async def get_all_teams() -> list[aiosqlite.Row]:
     async with _conn() as db:
         db.row_factory = aiosqlite.Row
@@ -196,9 +212,7 @@ async def update_team_chat_id(team_name: str, chat_id: int) -> None:
         await db.execute("UPDATE teams SET chat_id=? WHERE team_name=?", (chat_id, team_name))
         await db.commit()
 
-# ==========================================
-# SUPPORT TICKETS (С ТЕМАМИ)
-# ==========================================
+# SUPPORT
 async def create_ticket(user_id: int, message: str) -> int:
     async with _conn() as db:
         cur = await db.execute("INSERT INTO support_tickets(user_id, message) VALUES(?,?)", (user_id, message))
@@ -227,12 +241,8 @@ async def close_ticket(ticket_id: int) -> None:
         await db.execute("UPDATE support_tickets SET status='closed' WHERE id=?", (ticket_id,))
         await db.commit()
 
-# ==========================================
 # PROJECTS
-# ==========================================
-async def create_project(client_id: int, title: str, description: str, budget: int,
-                         contact_info: str, country: str, is_samozanyat: int,
-                         referrer_id: Optional[int], manager_id: int) -> int:
+async def create_project(client_id: int, title: str, description: str, budget: int, contact_info: str, country: str, is_samozanyat: int, referrer_id: Optional[int], manager_id: int) -> int:
     async with _conn() as db:
         cur = await db.execute("INSERT INTO projects(client_id, title, description, budget, contact_info, country, is_samozanyat, referrer_id, manager_id) VALUES(?,?,?,?,?,?,?,?,?)",
             (client_id, title, description, budget, contact_info, country, is_samozanyat, referrer_id, manager_id))
@@ -273,6 +283,18 @@ async def general_stats() -> dict:
             "turnover": await scalar("SELECT COALESCE(SUM(budget),0) FROM projects"),
             "company": await scalar("SELECT COALESCE(SUM(delta),0) FROM company_ledger"),
         }
+
+async def pr_stats(user_id: int) -> dict:
+    async with _conn() as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute("SELECT COUNT(*) c FROM users WHERE referrer_id=?", (user_id,))
+        clients = (await cur.fetchone())["c"]
+        cur = await db.execute("SELECT COUNT(*) c, COALESCE(SUM(budget),0) s FROM projects WHERE referrer_id=?", (user_id,))
+        row = await cur.fetchone()
+        orders, total = row["c"], row["s"]
+        cur = await db.execute("SELECT COALESCE(SUM(amount),0) s FROM payouts WHERE telegram_id=? AND role='pr'", (user_id,))
+        earned = (await cur.fetchone())["s"]
+    return {"clients": clients, "orders": orders, "total": total, "earned": earned}
 
 async def increment_discount_by_user_id(user_id: int) -> int:
     async with _conn() as db:
