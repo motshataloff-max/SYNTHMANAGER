@@ -1,0 +1,2 @@
+tg_bot: python main.py
+vk_bot: python vk_bot.py
