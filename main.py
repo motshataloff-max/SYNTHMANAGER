@@ -187,7 +187,7 @@ def run_vk_bot_sync(tg_bot: Bot):
 async def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
     
-    await db.connect()
+    await db.init(config.db_path)
     logging.info("✅ База данных инициализирована")
 
     proxy = os.getenv("PROXY_URL", "").strip()
