@@ -454,3 +454,31 @@ async def list_projects(limit: int = 50) -> List[Dict]:
         db.row_factory = aiosqlite.Row
         cur = await db.execute("SELECT * FROM projects ORDER BY id DESC LIMIT ?", (limit,))
         return [dict(r) for r in await cur.fetchall()]
+# ==========================================
+# БЛОК: МОДЕРАЦИЯ И БАНЫ (АДМИНКА)
+# ==========================================
+async def get_pending_roles() -> List[Dict]:
+    """Получает все заявки на роли со статусом pending (для модерации)"""
+    async with _conn() as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute("""
+            SELECT r.*, u.username, u.full_name 
+            FROM roles r 
+            LEFT JOIN users u ON r.telegram_id = u.telegram_id
+            WHERE r.status = 'pending'
+            ORDER BY r.created_at DESC
+            LIMIT 50
+        """)
+        return [dict(row) for row in await cur.fetchall()]
+
+async def get_all_banned_users() -> List[Dict]:
+    """Получает список всех забаненных пользователей"""
+    async with _conn() as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute("""
+            SELECT b.*, u.username, u.full_name 
+            FROM banned_users b 
+            LEFT JOIN users u ON b.telegram_id = u.telegram_id
+            ORDER BY b.created_at DESC
+        """)
+        return [dict(row) for row in await cur.fetchall()]
