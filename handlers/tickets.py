@@ -58,11 +58,13 @@ async def cmd_status(message: Message):
 # ==========================================
 @router.message(Command("my_tickets"))
 async def cmd_my_tickets(message: Message):
-    user = await db.get_user(message.from_user.id)
+    tg_id = message.from_user.id
+    user = await db.get_user(tg_id)
     if not user:
         return await message.answer("⚠️ Вы ещё не зарегистрированы в системе. Нажмите /start")
     
-    tickets = await db.get_user_tickets(user['id'])
+    # ИСПРАВЛЕНО: используем tg_id напрямую, так как в БД ключ — это telegram_id
+    tickets = await db.get_user_tickets(tg_id)
     
     if not tickets:
         return await message.answer("📭 У вас пока нет тикетов.")
@@ -78,7 +80,6 @@ async def cmd_my_tickets(message: Message):
         lines.append(f"\n<i>Показаны последние 10 из {len(tickets)}</i>")
     
     await message.answer("\n".join(lines), parse_mode="HTML")
-
 # ==========================================
 # /ticket <номер> — для менеджеров/CEO
 # ==========================================
