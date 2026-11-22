@@ -199,7 +199,7 @@ async def main() -> None:
     # Сначала специфичные (support, tickets), в самом конце - common (с catch_all)
     dp.include_router(support.router)   # Поддержка (FSM states)
     dp.include_router(tickets.router)   # Тикеты и статусы
-    dp.include_router(client.router)    # Заявки на разработку
+    dp.include_router(client.router)    # Заявки на разработк
     dp.include_router(dev.router)       # Разработчики
     dp.include_router(partner.router)   # Партнёры
     dp.include_router(projects.router)  # Проекты
