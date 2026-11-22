@@ -1,21 +1,37 @@
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 
-def main_menu() -> ReplyKeyboardMarkup:
+# ==========================================
+# ГЛАВНОЕ МЕНЮ ДЛЯ КЛИЕНТОВ
+# ==========================================
+def client_main_menu() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(keyboard=[
         [KeyboardButton(text="🛒 Заказать разработку"), KeyboardButton(text="👨‍💻 Стать разработчиком")],
-        [KeyboardButton(text="🤝 Стать партнёром"), KeyboardButton(text="🔗 Моя ссылка на скидку")],
-        [KeyboardButton(text="📊 Моя статистика"), KeyboardButton(text="ℹ️ О нас")],
-        [KeyboardButton(text="🆘 Поддержка")],
+        [KeyboardButton(text="🤝 Стать партнёром"), KeyboardButton(text="🔗 Моя реферальная ссылка")],
+        [KeyboardButton(text="📂 Мои заявки"), KeyboardButton(text="🔍 Проверить статус заявки")],
+        [KeyboardButton(text="ℹ️ О нас"), KeyboardButton(text="🆘 Поддержка")],
     ], resize_keyboard=True, input_field_placeholder="Выберите действие 👇")
 
-def admin_menu() -> ReplyKeyboardMarkup:
+# ==========================================
+# ГЛАВНОЕ МЕНЮ ДЛЯ АДМИНОВ/МЕНЕДЖЕРОВ
+# ==========================================
+def admin_main_menu() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(keyboard=[
-        [KeyboardButton(text="📋 Список проектов"), KeyboardButton(text="👨‍💻 Разработчики")],
-        [KeyboardButton(text="👥 Менеджеры"), KeyboardButton(text="📈 Статистика бота")],
-        [KeyboardButton(text="🏖 Управление отпусками"), KeyboardButton(text="👥 Управление командами")],
-        [KeyboardButton(text="📢 Глобальная рассылка")],
-        [KeyboardButton(text="🔙 Главное меню")],
-    ], resize_keyboard=True, input_field_placeholder="Админ-панель SYNTH 👑")
+        [KeyboardButton(text="📋 Все заявки (Тикеты)"), KeyboardButton(text="👥 Управление командами")],
+        [KeyboardButton(text="👨‍💻 Разработчики"), KeyboardButton(text="🛡️ Модерация")],
+        [KeyboardButton(text="📊 Статистика"), KeyboardButton(text="🚫 Баны")],
+        [KeyboardButton(text="🔙 Главное меню (Клиент)")],
+    ], resize_keyboard=True, input_field_placeholder="Панель управления 👑")
+
+# ==========================================
+# СТАРЫЕ ФУНКЦИИ (СОХРАНЯЕМ ВСЁ)
+# ==========================================
+def main_menu() -> ReplyKeyboardMarkup:
+    """Старая версия для обратной совместимости"""
+    return client_main_menu()
+
+def admin_menu() -> ReplyKeyboardMarkup:
+    """Старая версия для обратной совместимости"""
+    return admin_main_menu()
 
 def cancel_kb() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="❌ Отмена")]], resize_keyboard=True)
