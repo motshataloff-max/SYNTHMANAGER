@@ -2,7 +2,6 @@ import asyncio
 import logging
 import os
 import socket
-import time
 from datetime import datetime, timedelta
 from flask import Flask
 from threading import Thread
@@ -19,10 +18,10 @@ from vk_api.longpoll import VkLongPoll, VkEventType
 
 import db
 from config import config
-from handlers import admin, client, common, dev, partner, projects, support, tickets
+from handlers import admin, client, common, dev, partner, projects, support
 
 # ==========================================
-# 1. FLASK ДЛЯ RAILWAY (HEALTH CHECK)
+# 1. FLASK ДЛЯ RAILWAY
 # ==========================================
 app = Flask(__name__)
 
@@ -35,7 +34,7 @@ def run_flask():
     app.run(host="0.0.0.0", port=port, use_reloader=False)
 
 # ==========================================
-# 2. ОБХОД БЛОКИРОВОК TELEGRAM
+# 2. DNS-ПАТЧ ДЛЯ TELEGRAM
 # ==========================================
 def _patch_dns() -> None:
     _orig = socket.getaddrinfo
@@ -49,7 +48,6 @@ def _patch_dns() -> None:
 # 3. ФОНОВЫЕ ЗАДАЧИ
 # ==========================================
 async def hourly_report_task(bot: Bot):
-    """Ежечасная сводка"""
     while True:
         await asyncio.sleep(3600)
         try:
@@ -67,13 +65,11 @@ async def hourly_report_task(bot: Bot):
             logging.error(f"Ошибка часового отчёта: {e}")
 
 async def daily_report_task(bot: Bot):
-    """Ежедневный текстовый отчёт в 04:30 UTC"""
     while True:
         now = datetime.now()
         target = now.replace(hour=4, minute=30, second=0, microsecond=0)
         if now >= target:
             target += timedelta(days=1)
-        
         await asyncio.sleep((target - now).total_seconds())
         
         try:
@@ -88,22 +84,21 @@ async def daily_report_task(bot: Bot):
                 f"💰 Общий оборот: {stats['total_budget']} ₽",
             ]
             file_bytes = "\n".join(lines).encode("utf-8")
+            from aiogram.types import BufferedInputFile
             await bot.send_document(
                 chat_id=config.ceo_group_id,
-                document=FSInputFile(file_bytes, filename=f"synth_daily_{datetime.now().strftime('%Y%m%d')}.txt"),
+                document=BufferedInputFile(file_bytes, filename=f"synth_daily_{datetime.now().strftime('%Y%m%d')}.txt"),
                 caption="📦 Ежедневный отчёт"
             )
         except Exception as e:
             logging.error(f"Ошибка ежедневного отчёта: {e}")
 
 async def daily_backup_task(bot: Bot):
-    """Ежедневный бэкап БД в 04:00 UTC (07:00 МСК)"""
     while True:
         now = datetime.now()
         target = now.replace(hour=4, minute=0, second=0, microsecond=0)
         if now >= target:
             target += timedelta(days=1)
-        
         seconds_to_wait = (target - now).total_seconds()
         logging.info(f"💾 Следующий бэкап БД через {seconds_to_wait/3600:.1f} часов")
         await asyncio.sleep(seconds_to_wait)
@@ -113,7 +108,6 @@ async def daily_backup_task(bot: Bot):
             filename = f"synth_backup_{date_str}.db"
             file_size_kb = os.path.getsize(config.db_path) / 1024
             
-            # Отправка CEO
             doc = FSInputFile(config.db_path, filename=filename)
             await bot.send_document(
                 chat_id=config.owner_id,
@@ -122,7 +116,6 @@ async def daily_backup_task(bot: Bot):
                 parse_mode="HTML"
             )
             
-            # Дубль в канал логов
             if config.ping_chat_id != config.owner_id:
                 doc2 = FSInputFile(config.db_path, filename=filename)
                 await bot.send_document(
@@ -130,12 +123,11 @@ async def daily_backup_task(bot: Bot):
                     document=doc2,
                     caption=f"💾 Бэкап БД {date_str}"
                 )
-            logging.info(f"✅ Бэкап БД успешно отправлен ({filename})")
+            logging.info(f"✅ Бэкап БД отправлен ({filename})")
         except Exception as e:
-            logging.error(f"❌ Ошибка отправки бэкапа БД: {e}")
+            logging.error(f"❌ Ошибка бэкапа БД: {e}")
 
 def run_vk_bot_sync(tg_bot: Bot):
-    """Синхронный VK LongPoll (запускается в отдельном потоке)"""
     if not config.vk_token or config.vk_group_id == 0:
         logging.info("⚠️ VK_TOKEN или VK_GROUP_ID не найдены. VK-бот не запущен.")
         return
@@ -157,43 +149,37 @@ def run_vk_bot_sync(tg_bot: Bot):
                 except:
                     name = "VK Пользователь"
 
-                # Создаем или получаем пользователя в единой БД
-                # Используем asyncio.run_coroutine_threadsafe для вызова асинхронных методов из синхронного потока
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
                 user = loop.run_until_complete(db.get_or_create_user(vk_id=vk_id, username=f"vk_{vk_id}", full_name=name))
                 user_id = user['id']
-                loop.close()
 
                 if text in ["привет", "здравствуйте", "хай", "поддержка", "помощь"]:
-                    # Создаем тикет поддержки
                     ticket = loop.run_until_complete(db.create_ticket(
                         user_id=user_id, channel='vk', type='support', 
                         title='Обращение в поддержку', description=event.text
                     ))
                     response = f"Привет! 👋 Ваш тикет: {ticket['ticket_number']}. Менеджер скоро ответит."
                     
-                    # Уведомление в Telegram
                     header = f"🆘 <b>Новый тикет VK: {ticket['ticket_number']}</b>\n👤 <b>Клиент:</b> {name} (VK: <code>{vk_id}</code>)\n💬 <b>Сообщение:</b>\n{event.text}"
                     loop.run_until_complete(tg_bot.send_message(config.support_group_id, header, parse_mode="HTML"))
                 
                 elif text in ["цена", "стоимость", "бюджет"]:
                     response = "Стоимость от 500 ₽. Опишите задачу, и мы оценим!"
                 elif text in ["контакты", "телеграм", "тг", "tg"]:
-                    response = "📱 Наш основной бот для заказов в Telegram: @Synthmanager_bot"
+                    response = "📱 Наш основной бот: @Synthmanager_bot"
                 else:
-                    # Проверяем, есть ли открытый тикет
-                    # (Упрощенная логика: если клиент просто пишет, предлагаем создать тикет или перенаправляем)
-                    response = "Спасибо за сообщение! 📩\nДля создания заявки напишите 'поддержка' или перейдите в Telegram: @Synthmanager_bot"
+                    response = "Спасибо за сообщение! 📩\nДля заявки напишите 'поддержка' или перейдите в Telegram: @Synthmanager_bot"
 
                 try:
                     vk.messages.send(user_id=vk_id, message=response, random_id=0)
-                    logging.info(f"✅ VK: Ответ отправлен пользователю {vk_id}")
+                    logging.info(f"✅ VK: Ответ отправлен {vk_id}")
                 except Exception as e:
                     logging.error(f"❌ VK Ошибка отправки: {e}")
+                loop.close()
                     
     except Exception as e:
-        logging.error(f"❌ Ошибка запуска VK-бота: {e}")
+        logging.error(f"❌ Ошибка VK-бота: {e}")
 
 # ==========================================
 # 4. ГЛАВНАЯ ФУНКЦИЯ
@@ -201,11 +187,9 @@ def run_vk_bot_sync(tg_bot: Bot):
 async def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
     
-    # Инициализация БД
     await db.connect()
     logging.info("✅ База данных инициализирована")
 
-    # Настройка сети
     proxy = os.getenv("PROXY_URL", "").strip()
     session = AiohttpSession(proxy=proxy) if proxy else AiohttpSession()
     if not proxy: 
@@ -214,7 +198,7 @@ async def main() -> None:
     bot = Bot(config.bot_token, session=session, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher(storage=MemoryStorage())
 
-    # Подключение роутеров
+    # Подключаем только существующие роутеры
     dp.include_router(common.router)
     dp.include_router(client.router)
     dp.include_router(dev.router)
@@ -222,29 +206,23 @@ async def main() -> None:
     dp.include_router(support.router)
     dp.include_router(projects.router)
     dp.include_router(admin.router)
-    dp.include_router(tickets.router) # Новый роутер для тикетов
 
     await bot.delete_webhook(drop_pending_updates=True)
     
     await bot.set_my_commands([
         BotCommand(command="start", description="🚀 Запустить бота"),
-        BotCommand(command="status", description="📋 Проверить статус тикета"),
-        BotCommand(command="my_tickets", description="📂 Мои тикеты"),
-        BotCommand(command="cancel", description="❌ Отменить действие"),
+        BotCommand(command="cancel", description="❌ Отменить"),
         BotCommand(command="ban", description="🚫 Забанить (CEO)"),
         BotCommand(command="unban", description="✅ Разбанить (CEO)"),
         BotCommand(command="backup_db", description="💾 Ручной бэкап"),
     ])
-    logging.info("✅ Меню команд обновлено!")
+    logging.info("✅ Меню команд обновлено")
 
-    # Запуск Flask
     Thread(target=run_flask, daemon=True).start()
-    logging.info("🌐 Flask health check started")
+    logging.info("🌐 Flask started")
     
-    # Запуск VK-бота в отдельном потоке (чтобы не блокировать asyncio)
     Thread(target=run_vk_bot_sync, args=(bot,), daemon=True).start()
     
-    # Запуск асинхронных фоновых задач
     asyncio.create_task(hourly_report_task(bot))
     asyncio.create_task(daily_report_task(bot))
     asyncio.create_task(daily_backup_task(bot))
