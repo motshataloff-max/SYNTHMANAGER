@@ -18,7 +18,7 @@ from vk_api.longpoll import VkLongPoll, VkEventType
 
 import db
 from config import config
-from handlers import admin, client, common, dev, partner, projects, support
+from handlers import admin, client, common, dev, partner, projects, support, tickets
 
 # ==========================================
 # 1. FLASK ДЛЯ RAILWAY
@@ -206,7 +206,7 @@ async def main() -> None:
     dp.include_router(support.router)
     dp.include_router(projects.router)
     dp.include_router(admin.router)
-
+    dp.include_router(tickets.router)
     await bot.delete_webhook(drop_pending_updates=True)
     
     await bot.set_my_commands([
