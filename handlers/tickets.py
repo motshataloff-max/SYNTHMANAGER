@@ -1,3 +1,4 @@
+import logging
 import re
 from aiogram import Router, F, Bot
 from aiogram.filters import Command
@@ -7,6 +8,7 @@ import db
 from config import config
 from keyboards import client_main_menu
 
+logger = logging.getLogger(__name__)
 router = Router()
 
 # ==========================================
@@ -14,21 +16,25 @@ router = Router()
 # ==========================================
 @router.message(F.text == "📂 Мои заявки")
 async def menu_my_tickets(message: Message):
+    logger.info(f"User {message.from_user.id} clicked 'Мои заявки'")
     tg_id = message.from_user.id
     user = await db.get_user(tg_id)
     if not user: 
         return await message.answer("⚠️ Нажмите /start для регистрации.", reply_markup=client_main_menu())
     
     tickets = await db.get_user_tickets(tg_id)
+    logger.info(f"Found {len(tickets)} tickets for user {tg_id}")
+    
     if not tickets: 
-        return await message.answer("📭 У вас пока нет активных заявок.", reply_markup=client_main_menu())
+        return await message.answer("📭 У вас пока нет активных заявок.\n\n💡 Нажмите '🆘 Поддержка' или '🛒 Заказать разработку', чтобы создать первую.", reply_markup=client_main_menu())
     
     status_emoji = {'new': '🆕', 'in_progress': '🔨', 'done': '✅', 'closed': '🔒'}
     lines = ["📂 <b>Ваши заявки:</b>", ""]
     
     for t in tickets[:10]:
         emoji = status_emoji.get(t['status'], '⚪')
-        lines.append(f"{emoji} <code>{t['ticket_number']}</code> — {t.get('title') or 'Без названия'}")
+        title = t.get('title') or 'Без названия'
+        lines.append(f"{emoji} <code>{t['ticket_number']}</code> — {title[:30]}")
     
     if len(tickets) > 10:
         lines.append(f"\n<i>Показаны последние 10 из {len(tickets)}</i>")
@@ -42,10 +48,11 @@ async def menu_my_tickets(message: Message):
 @router.message(F.text.regexp(r'(?i)^SYNTH-\d{4}-\d{4}$'))
 async def auto_check_status(message: Message):
     ticket_number = message.text.upper()
+    logger.info(f"User {message.from_user.id} checking status for {ticket_number}")
     ticket = await db.get_ticket(ticket_number)
     
     if not ticket:
-        return await message.answer(f"❌ Тикет <code>{ticket_number}</code> не найден.", parse_mode="HTML")
+        return await message.answer(f"❌ Тикет <code>{ticket_number}</code> не найден в базе данных.", parse_mode="HTML")
     
     # Проверка прав: клиент видит только свои, CEO видит все
     if message.from_user.id != config.owner_id:
@@ -67,30 +74,56 @@ async def cmd_status(message: Message):
     parts = message.text.split()
     if len(parts) < 2: 
         return await message.answer("⚠️ Укажите трек-номер.\n\nПример: <code>/status SYNTH-2026-0001</code>", parse_mode="HTML")
-    
-    # Перенаправляем на умный перехват
-    message.text = parts[1].upper()
+    message.text = parts[1].upper() # Хакируем текст, чтобы сработал regexp выше
     await auto_check_status(message)
 
 # ==========================================
-# 3. АДМИН: Все заявки и управление
+# 3. АДМИН: Все заявки и управление (С ЛОГАМИ)
 # ==========================================
 @router.message(F.text == "📋 Все заявки (Тикеты)")
 async def menu_all_tickets(message: Message):
+    logger.info(f"Admin {message.from_user.id} clicked 'Все заявки (Тикеты)'")
+    
     if message.from_user.id != config.owner_id and not await db.has_active_role(message.from_user.id, 'manager'): 
+        logger.warning(f"Access denied for user {message.from_user.id}")
         return await message.answer("⚠️ Доступ только для менеджеров и CEO.")
     
-    tickets = await db.get_all_active_tickets()
-    if not tickets: 
-        return await message.answer("📭 Активных заявок нет.")
-    
-    status_emoji = {'new': '🆕', 'in_progress': '🔨', 'done': '✅'}
-    lines = ["📋 <b>Активные заявки:</b>", ""]
-    for t in tickets:
-        emoji = status_emoji.get(t['status'], '⚪')
-        lines.append(f"{emoji} <code>{t['ticket_number']}</code> | {t['channel'].upper()} | {t.get('title') or 'Без названия'}")
-    
-    await message.answer("\n".join(lines), parse_mode="HTML")
+    try:
+        tickets = await db.get_all_active_tickets()
+        logger.info(f"DB returned {len(tickets)} active tickets")
+        
+        if not tickets:
+            # Если активных нет, проверим, есть ли вообще хоть какие-то в базе, чтобы исключить баг БД
+            async with db._conn() as conn:
+                conn.row_factory = db.aiosqlite.Row
+                cur = await conn.execute("SELECT COUNT(*) FROM tickets")
+                total = (await cur.fetchone())[0]
+            
+            if total == 0:
+                return await message.answer(
+                    "📭 <b>В системе пока нет ни одной заявки.</b>\n\n"
+                    "💡 <i>Нажмите '🆘 Поддержка' или '🛒 Заказать разработку', чтобы создать тестовую заявку, и она появится здесь.</i>"
+                )
+            else:
+                return await message.answer(
+                    f"📭 <b>Активных заявок нет</b> (все закрыты).\n"
+                    f"📊 Всего заявок в базе: <b>{total}</b>"
+                )
+
+        status_emoji = {'new': '🆕', 'in_progress': '🔨', 'done': '✅', 'closed': '🔒'}
+        lines = ["📋 <b>Активные заявки:</b>", ""]
+        for t in tickets:
+            emoji = status_emoji.get(t['status'], '⚪')
+            channel = t.get('channel', 'TG').upper()
+            title = t.get('title') or 'Без названия'
+            lines.append(f"{emoji} <code>{t['ticket_number']}</code> | {channel} | {title[:30]}")
+        
+        lines.append(f"\n<i>Всего показано: {len(tickets)} из 20</i>")
+        await message.answer("\n".join(lines), parse_mode="HTML")
+        
+    except Exception as e:
+        logger.error(f"CRITICAL ERROR in menu_all_tickets: {e}", exc_info=True)
+        await message.answer(f"❌ Произошла ошибка при чтении базы данных:\n<code>{e}</code>", parse_mode="HTML")
 
 @router.message(Command("ticket"))
 async def cmd_ticket_admin(message: Message):
