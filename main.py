@@ -11,7 +11,7 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import BotCommand, FSInputFile
+from aiogram.types import BotCommand, FSInputFile, BufferedInputFile
 
 import vk_api
 from vk_api.longpoll import VkLongPoll, VkEventType
@@ -34,7 +34,7 @@ def run_flask():
     app.run(host="0.0.0.0", port=port, use_reloader=False)
 
 # ==========================================
-# 2. DNS-ПАТЧ ДЛЯ TELEGRAM
+# 2. DNS-ПАТЧ
 # ==========================================
 def _patch_dns() -> None:
     _orig = socket.getaddrinfo
@@ -51,14 +51,14 @@ async def hourly_report_task(bot: Bot):
     while True:
         await asyncio.sleep(3600)
         try:
-            stats = await db.get_stats()
+            stats = await db.general_stats()
             text = (
                 f"🟢 <b>Часовая сводка SYNTH</b>\n"
                 f"🕒 {datetime.now().strftime('%d.%m.%Y %H:%M')} UTC\n\n"
-                f"👥 Пользователей: <b>{stats['total_users']}</b>\n"
-                f"📋 Активных тикетов: <b>{stats['active_tickets']}</b>\n"
-                f"✅ Закрытых: <b>{stats['closed_tickets']}</b>\n"
-                f"💰 Общий бюджет: <b>{stats['total_budget']} ₽</b>"
+                f"👥 Пользователей: <b>{stats['clients']}</b>\n"
+                f"📦 Активных проектов: <b>{stats['active_projects']}</b>\n"
+                f"✅ Завершённых: <b>{stats['done_projects']}</b>\n"
+                f"💰 Оборот: <b>{stats['turnover']} ₽</b>"
             )
             await bot.send_message(config.ceo_group_id, text, parse_mode="HTML")
         except Exception as e:
@@ -73,18 +73,17 @@ async def daily_report_task(bot: Bot):
         await asyncio.sleep((target - now).total_seconds())
         
         try:
-            stats = await db.get_stats()
+            stats = await db.general_stats()
             lines = [
                 f"📊 ЕЖЕДНЕВНЫЙ ОТЧЁТ SYNTH",
                 f"📅 {datetime.now().strftime('%d.%m.%Y')}",
                 "=" * 40,
-                f"👥 Всего пользователей: {stats['total_users']}",
-                f"📋 Активных тикетов: {stats['active_tickets']}",
-                f"✅ Закрытых тикетов: {stats['closed_tickets']}",
-                f"💰 Общий оборот: {stats['total_budget']} ₽",
+                f"👥 Всего клиентов: {stats['clients']}",
+                f"📦 Активных проектов: {stats['active_projects']}",
+                f"✅ Завершённых: {stats['done_projects']}",
+                f"💰 Оборот: {stats['turnover']} ₽",
             ]
             file_bytes = "\n".join(lines).encode("utf-8")
-            from aiogram.types import BufferedInputFile
             await bot.send_document(
                 chat_id=config.ceo_group_id,
                 document=BufferedInputFile(file_bytes, filename=f"synth_daily_{datetime.now().strftime('%Y%m%d')}.txt"),
@@ -118,11 +117,7 @@ async def daily_backup_task(bot: Bot):
             
             if config.ping_chat_id != config.owner_id:
                 doc2 = FSInputFile(config.db_path, filename=filename)
-                await bot.send_document(
-                    chat_id=config.ping_chat_id,
-                    document=doc2,
-                    caption=f"💾 Бэкап БД {date_str}"
-                )
+                await bot.send_document(chat_id=config.ping_chat_id, document=doc2, caption=f"💾 Бэкап БД {date_str}")
             logging.info(f"✅ Бэкап БД отправлен ({filename})")
         except Exception as e:
             logging.error(f"❌ Ошибка бэкапа БД: {e}")
@@ -151,32 +146,34 @@ def run_vk_bot_sync(tg_bot: Bot):
 
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
-                user = loop.run_until_complete(db.get_or_create_vk_user(vk_id=vk_id, username=f"vk_{vk_id}", full_name=name))
-                user_id = user['id']
-
-                if text in ["привет", "здравствуйте", "хай", "поддержка", "помощь"]:
-                    ticket = loop.run_until_complete(db.create_ticket(
-                        user_id=user_id, channel='vk', type='support', 
-                        title='Обращение в поддержку', description=event.text
-                    ))
-                    response = f"Привет! 👋 Ваш тикет: {ticket['ticket_number']}. Менеджер скоро ответит."
-                    
-                    header = f"🆘 <b>Новый тикет VK: {ticket['ticket_number']}</b>\n👤 <b>Клиент:</b> {name} (VK: <code>{vk_id}</code>)\n💬 <b>Сообщение:</b>\n{event.text}"
-                    loop.run_until_complete(tg_bot.send_message(config.support_group_id, header, parse_mode="HTML"))
-                
-                elif text in ["цена", "стоимость", "бюджет"]:
-                    response = "Стоимость от 500 ₽. Опишите задачу, и мы оценим!"
-                elif text in ["контакты", "телеграм", "тг", "tg"]:
-                    response = "📱 Наш основной бот: @Synthmanager_bot"
-                else:
-                    response = "Спасибо за сообщение! 📩\nДля заявки напишите 'поддержка' или перейдите в Telegram: @Synthmanager_bot"
-
                 try:
-                    vk.messages.send(user_id=vk_id, message=response, random_id=0)
-                    logging.info(f"✅ VK: Ответ отправлен {vk_id}")
-                except Exception as e:
-                    logging.error(f"❌ VK Ошибка отправки: {e}")
-                loop.close()
+                    user = loop.run_until_complete(db.get_or_create_vk_user(vk_id=vk_id, username=f"vk_{vk_id}", full_name=name))
+                    user_id = user['id']
+                    
+                    if text in ["привет", "здравствуйте", "хай", "поддержка", "помощь"]:
+                        ticket = loop.run_until_complete(db.create_ticket(
+                            user_id=user_id, channel='vk', type='support', 
+                            title='Обращение в поддержку', description=event.text
+                        ))
+                        response = f"Привет! 👋 Ваша заявка создана!\n\n📋 Номер заявки: {ticket['id']}\n🎫 Ваш тикет: {ticket['ticket_number']}\n\nСохраните его. Менеджер скоро свяжется!"
+                        
+                        header = f"🆘 <b>Новый тикет VK: {ticket['ticket_number']}</b>\n👤 <b>Клиент:</b> {name} (VK: <code>{vk_id}</code>)\n💬 <b>Сообщение:</b>\n{event.text}"
+                        loop.run_until_complete(tg_bot.send_message(config.support_group_id, header, parse_mode="HTML"))
+                    
+                    elif text in ["цена", "стоимость", "бюджет"]:
+                        response = "Стоимость от 500 ₽. Опишите задачу, и мы оценим!"
+                    elif text in ["контакты", "телеграм", "тг", "tg"]:
+                        response = "📱 Наш основной бот: @Synthmanager_bot"
+                    else:
+                        response = "Спасибо за сообщение! 📩\nДля заявки напишите 'поддержка' или перейдите в Telegram: @Synthmanager_bot"
+
+                    try:
+                        vk.messages.send(user_id=vk_id, message=response, random_id=0)
+                        logging.info(f"✅ VK: Ответ отправлен {vk_id}")
+                    except Exception as e:
+                        logging.error(f"❌ VK Ошибка отправки: {e}")
+                finally:
+                    loop.close()
                     
     except Exception as e:
         logging.error(f"❌ Ошибка VK-бота: {e}")
@@ -198,19 +195,23 @@ async def main() -> None:
     bot = Bot(config.bot_token, session=session, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher(storage=MemoryStorage())
 
-    # Подключаем только существующие роутеры
-    dp.include_router(common.router)
-    dp.include_router(client.router)
-    dp.include_router(dev.router)
-    dp.include_router(partner.router)
-    dp.include_router(support.router)
-    dp.include_router(projects.router)
-    dp.include_router(admin.router)
-    dp.include_router(tickets.router)
+    # 🔥 ВАЖНО: ПОРЯДОК ПОДКЛЮЧЕНИЯ РОУТЕРОВ
+    # Сначала специфичные (support, tickets), в самом конце - common (с catch_all)
+    dp.include_router(support.router)   # Поддержка (FSM states)
+    dp.include_router(tickets.router)   # Тикеты и статусы
+    dp.include_router(client.router)    # Заявки на разработку
+    dp.include_router(dev.router)       # Разработчики
+    dp.include_router(partner.router)   # Партнёры
+    dp.include_router(projects.router)  # Проекты
+    dp.include_router(admin.router)     # Админка
+    dp.include_router(common.router)    # Общий (СТРОГО В КОНЦЕ!)
+
     await bot.delete_webhook(drop_pending_updates=True)
     
     await bot.set_my_commands([
         BotCommand(command="start", description="🚀 Запустить бота"),
+        BotCommand(command="status", description="📋 Проверить статус тикета"),
+        BotCommand(command="my_tickets", description="📂 Мои заявки"),
         BotCommand(command="cancel", description="❌ Отменить"),
         BotCommand(command="ban", description="🚫 Забанить (CEO)"),
         BotCommand(command="unban", description="✅ Разбанить (CEO)"),
