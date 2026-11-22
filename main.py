@@ -151,7 +151,7 @@ def run_vk_bot_sync(tg_bot: Bot):
 
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
-                user = loop.run_until_complete(db.get_or_create_user(vk_id=vk_id, username=f"vk_{vk_id}", full_name=name))
+                user = loop.run_until_complete(db.get_or_create_vk_user(vk_id=vk_id, username=f"vk_{vk_id}", full_name=name))
                 user_id = user['id']
 
                 if text in ["привет", "здравствуйте", "хай", "поддержка", "помощь"]:
