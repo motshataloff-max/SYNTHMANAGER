@@ -347,13 +347,19 @@ async def stats(message: Message):
 # ==========================================
 # 6. FALLBACK (ОБРАБОТКА НЕИЗВЕСТНЫХ СООБЩЕНИЙ)
 # ==========================================
-@router.message(F.text)
+# ==========================================
+# 6. FALLBACK (ОБРАБОТКА НЕИЗВЕСТНЫХ СООБЩЕНИЙ)
+# ==========================================
+@router.message(F.text, F.chat.type == "private")  # <-- ДОБАВЛЕНО: только в личных чатах!
 async def catch_all_text(message: Message, state: FSMContext):
-    """Ловит любой текст, который не попал в другие фильтры"""
+    """Ловит любой текст, который не попал в другие фильтры (ТОЛЬКО в ЛС)"""
     current_state = await state.get_state()
+    
     if current_state:
         # Пользователь в FSM-состоянии — пусть другой роутер обработает
+        logger.info(f"[COMMON] User {message.from_user.id} in state {current_state}, text: {message.text[:50]}")
         return
+    
     logger.info(f"[COMMON] User {message.from_user.id} sent unrecognized text: {message.text[:50]}")
     await message.answer(
         "🤔 Я не распознал команду. Пожалуйста, используйте кнопки меню ниже 👇",
