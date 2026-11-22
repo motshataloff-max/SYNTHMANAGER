@@ -61,10 +61,11 @@ async def _welcome_kb(uid: int):
     return client_main_menu()
 
 # ==========================================
-# АБСОЛЮТНЫЙ СБРОС (БЕЗОПАСНЫЕ ФИЛЬТРЫ)
+# 1. АБСОЛЮТНЫЙ СБРОС (РАЗДЕЛЕННЫЕ ОБРАБОТЧИКИ)
 # ==========================================
-@router.message(CommandStart() | F.text.in_({"🏠 Главное меню", "🔙 Главное меню", "🔙 Главное меню (Клиент)"}))
-async def force_main_menu(message: Message, state: FSMContext):
+@router.message(CommandStart())
+async def start_plain(message: Message, state: FSMContext):
+    """Обработка команды /start"""
     await state.clear()
     await db.get_or_create_user(message.from_user)
     await message.answer(
@@ -73,8 +74,28 @@ async def force_main_menu(message: Message, state: FSMContext):
         parse_mode="HTML"
     )
 
-@router.message(Command("cancel") | (F.text == "❌ Отмена"))
-async def force_cancel(message: Message, state: FSMContext):
+@router.message(F.text.in_({"🏠 Главное меню", "🔙 Главное меню", "🔙 Главное меню (Клиент)"}))
+async def force_main_menu(message: Message, state: FSMContext):
+    """Обработка кнопок возврата в главное меню"""
+    await state.clear()
+    await message.answer(
+        "🏠 <b>Главное меню:</b>", 
+        reply_markup=await _welcome_kb(message.from_user.id),
+        parse_mode="HTML"
+    )
+
+@router.message(Command("cancel"))
+async def cancel_command(message: Message, state: FSMContext):
+    """Обработка команды /cancel"""
+    await state.clear()
+    await message.answer(
+        "❌ Действие отменено.", 
+        reply_markup=await _welcome_kb(message.from_user.id)
+    )
+
+@router.message(F.text == "❌ Отмена")
+async def cancel_button(message: Message, state: FSMContext):
+    """Обработка кнопки отмены"""
     await state.clear()
     await message.answer(
         "❌ Действие отменено.", 
@@ -90,7 +111,7 @@ async def cmd_help(message: Message):
     )
 
 # ==========================================
-# КЛИЕНТСКИЕ КНОПКИ
+# 2. КЛИЕНТСКИЕ КНОПКИ
 # ==========================================
 @router.message(F.text == "🛒 Заказать разработку")
 async def menu_order(message: Message, state: FSMContext):
@@ -150,7 +171,7 @@ async def about(message: Message, state: FSMContext):
     await message.answer(about_text or "🇷🇺 SYNTH — российская команда разработчиков. Работаем с РФ и дружественными странами.", parse_mode="HTML", reply_markup=client_main_menu())
 
 # ==========================================
-# АДМИНСКИЕ КНОПКИ
+# 3. АДМИНСКИЕ КНОПКИ
 # ==========================================
 @router.message(F.text.in_({"📈 Статистика бота", "📊 Статистика"}))
 async def admin_stats_button(message: Message):
@@ -184,14 +205,14 @@ async def admin_managers_button(message: Message):
     await message.answer("\n".join(lines), parse_mode="HTML")
 
 # ==========================================
-# КОМАНДЫ CEO
+# 4. КОМАНДЫ CEO
 # ==========================================
 @router.message(Command("add_manager"))
 async def add_manager(message: Message):
     if message.from_user.id != config.owner_id: return
     parts = message.text.split()
     if len(parts) < 2 or not parts[1].isdigit(): return await message.answer("⚠️ <code>/add_manager &lt;id&gt;</code>", parse_mode="HTML")
-    await db.upsert_role(int(parts[1]), "manager", "active") if hasattr(db, 'upsert_role') else None
+    if hasattr(db, 'upsert_role'): await db.upsert_role(int(parts[1]), "manager", "active")
     await message.answer(f"✅ <code>{parts[1]}</code> назначен менеджером.", parse_mode="HTML")
 
 @router.message(Command("add_helper"))
@@ -199,7 +220,7 @@ async def add_helper(message: Message):
     if message.from_user.id != config.owner_id: return
     parts = message.text.split()
     if len(parts) < 2 or not parts[1].isdigit(): return await message.answer("⚠️ <code>/add_helper &lt;id&gt;</code>", parse_mode="HTML")
-    await db.upsert_role(int(parts[1]), "helper", "active") if hasattr(db, 'upsert_role') else None
+    if hasattr(db, 'upsert_role'): await db.upsert_role(int(parts[1]), "helper", "active")
     await message.answer(f"✅ <code>{parts[1]}</code> назначен хелпером.", parse_mode="HTML")
 
 @router.message(Command("ban"))
@@ -239,7 +260,7 @@ async def stats(message: Message):
     await message.answer(text, parse_mode="HTML")
 
 # ==========================================
-# FALLBACK (ЕСЛИ НИЧЕГО НЕ ПОДОШЛО)
+# 5. FALLBACK (ЕСЛИ НИЧЕГО НЕ ПОДОШЛО)
 # ==========================================
 @router.message(F.text)
 async def catch_all_text(message: Message, state: FSMContext):
@@ -247,4 +268,3 @@ async def catch_all_text(message: Message, state: FSMContext):
     if current_state:
         await message.answer("⚠️ Сейчас я не могу обработать этот ввод. Нажмите '❌ Отмена' или '🏠 Главное меню'.", reply_markup=cancel_kb())
         return
-    await message.answer("🤔 Я не распознал команду. Пожалуйста, используйте кнопки меню ниже 👇", reply_markup=await _welcome_kb(message.from_user.id))
