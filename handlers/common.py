@@ -1,12 +1,12 @@
 from aiogram import Router, F, Bot
-from aiogram.filters import Command, CommandStart, CommandObject
+from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 
 import db
 import texts
 from keyboards import client_main_menu, admin_main_menu, cancel_kb
-from states import ClientForm, DevForm, PartnerForm, SupportForm
+from states import ClientForm, DevForm, PartnerForm
 from config import config
 
 router = Router()
@@ -79,9 +79,9 @@ async def cmd_help(message: Message):
     await message.answer(await _welcome_text(message.from_user.id), parse_mode="HTML", reply_markup=await _welcome_kb(message.from_user.id))
 
 # ==========================================
-# КНОПКИ ГЛАВНОГО МЕНЮ (ЧЕТКИЕ И ПРОСТЫЕ)
+# КНОПКИ ГЛАВНОГО МЕНЮ (БЕЗОПАСНЫЕ ФИЛЬТРЫ)
 # ==========================================
-@router.message(F.text == "🔙 Главное меню" | F.text == "🔙 Главное меню (Клиент)")
+@router.message(F.text.in_({"🔙 Главное меню", "🔙 Главное меню (Клиент)"}))
 async def back_to_main(message: Message, state: FSMContext):
     await state.clear()
     await message.answer("Главное меню:", reply_markup=await _welcome_kb(message.from_user.id))
@@ -116,7 +116,7 @@ async def menu_partner(message: Message, state: FSMContext):
     await state.set_state(PartnerForm.name)
     await message.answer(texts.PARTNER_ASK_NAME, parse_mode="HTML", reply_markup=cancel_kb())
 
-@router.message(F.text == "🔗 Моя реферальная ссылка" | F.text == "🔗 Моя ссылка на скидку")
+@router.message(F.text.in_({"🔗 Моя реферальная ссылка", "🔗 Моя ссылка на скидку"}))
 async def menu_ref_link(message: Message, state: FSMContext):
     await state.clear()
     uid = message.from_user.id
@@ -133,21 +133,17 @@ async def about(message: Message, state: FSMContext):
     await message.answer(about_text or "🇷🇺 SYNTH — российская команда разработчиков.", parse_mode="HTML")
 
 # ==========================================
-# УМНАЯ ЛОВУШКА ДЛЯ ЛЮБЫХ ДРУГИХ СООБЩЕНИЙ
+# УМНАЯ ЛОВУШКА (FALLBACK)
 # ==========================================
 @router.message(F.text)
 async def catch_all_text(message: Message, state: FSMContext):
     """Если сообщение не попало ни в один обработчик выше"""
-    # Проверяем, не находится ли пользователь в каком-то состоянии (FSM)
     current_state = await state.get_state()
     if current_state:
-        # Если да, значит, это часть диалога (например, ввод ТЗ), и другой роутер это обработает.
-        # Но если мы попали сюда, значит, обработчика нет. Сообщаем об этом.
-        await message.answer("⚠️ Сейчас я не могу обработать этот ввод. Нажмите '❌ Отмена' и попробуйте снова.")
+        await message.answer("⚠️ Сейчас я не могу обработать этот ввод. Нажмите '❌ Отмена' и попробуйте снова.", reply_markup=cancel_kb())
         return
 
-    # Если состояния нет, просто вежливо подсказываем
     await message.answer(
-        "🤔 Я не совсем понял команду. Пожалуйста, используйте кнопки меню ниже 👇",
+        "🤔 Я не распознал команду. Пожалуйста, используйте кнопки меню ниже 👇",
         reply_markup=await _welcome_kb(message.from_user.id)
     )
