@@ -111,7 +111,7 @@ async def process_contact(message: Message, state: FSMContext, bot: Bot):
         user_id = user['telegram_id']
         logger.info(f"[CLIENT] User resolved: {user_id}")
         
-        # Создаём тикет проекта
+        # 🔥 Создаём тикет проекта
         ticket = await db.create_ticket(
             user_id=user_id,
             channel='tg',
@@ -120,27 +120,28 @@ async def process_contact(message: Message, state: FSMContext, bot: Bot):
             description=f"{data['description']}\n\n📱 Контакт: {contact_info}\n💰 Бюджет: {data['budget']} ₽",
             budget=data['budget']
         )
-        logger.info(f"[CLIENT] Ticket created: {ticket['ticket_number']}")
+        ticket_number = ticket['ticket_number']
+        logger.info(f"[CLIENT] Ticket created: {ticket_number}")
         
         # Очищаем состояние
         await state.clear()
         
-        # Отправляем подтверждение клиенту
+        # 🔥 Отправляем подтверждение клиенту (ИСПРАВЛЕНО: убрано ticket['id'])
         response = (
             f"✅ <b>Ваша заявка на разработку успешно создана!</b>\n\n"
-            f"📋 Номер заявки: {ticket['id']}\n"
-            f"🎫 Ваш тикет: <code>{ticket['ticket_number']}</code>\n\n"
+            f"🎫 <b>Ваш тикет:</b> <code>{ticket_number}</code>\n\n"
             f"📝 <b>Задача:</b> {data['title']}\n"
             f"💰 <b>Бюджет:</b> {data['budget']} ₽\n"
             f"📱 <b>Контакт:</b> {contact_info}\n\n"
-            f"Сохраните номер тикета. Менеджер свяжется с вами в течение 15 минут."
+            f"💡 Сохраните номер тикета. Менеджер свяжется с вами в течение 15 минут.\n"
+            f"Проверить статус можно командой <code>/status {ticket_number}</code> или просто отправив номер боту."
         )
         await message.answer(response, parse_mode="HTML", reply_markup=client_main_menu())
         
         # 🔥 Уведомление в группу менеджеров
         user_link = f"<a href=\"tg://user?id={message.from_user.id}\">{message.from_user.username or 'Клиент'}</a>"
         header = (
-            f"🛒 <b>Новая заявка на разработку: {ticket['ticket_number']}</b>\n"
+            f"🛒 <b>Новая заявка на разработку: {ticket_number}</b>\n"
             f"{'─' * 30}\n"
             f"👤 <b>Клиент:</b> {user_link} (<code>{message.from_user.id}</code>)\n"
             f"📝 <b>Задача:</b> {data['title']}\n"
@@ -149,20 +150,30 @@ async def process_contact(message: Message, state: FSMContext, bot: Bot):
             f"📄 <b>Описание:</b>\n{data['description']}"
         )
         
-        target_group = config.admin_group_id if config.admin_group_id else config.ceo_group_id
+        # Определяем, куда слать уведомление
+        target_group = None
+        if config.admin_group_id and config.admin_group_id != 0:
+            target_group = config.admin_group_id
+        elif config.ceo_group_id and config.ceo_group_id != 0:
+            target_group = config.ceo_group_id
+        elif config.owner_id:
+            target_group = config.owner_id  # Фоллбэк: шлём CEO в личку
         
-        try:
-            await bot.send_message(target_group, header, parse_mode="HTML")
-            logger.info(f"[CLIENT] Notification sent to group {target_group}")
-        except Exception as e:
-            logger.error(f"[CLIENT] Failed to send notification to group: {e}", exc_info=True)
+        if target_group:
+            try:
+                await bot.send_message(target_group, header, parse_mode="HTML")
+                logger.info(f"[CLIENT] Notification sent to group/user {target_group}")
+            except Exception as e:
+                logger.error(f"[CLIENT] Failed to send notification to {target_group}: {e}", exc_info=True)
+        else:
+            logger.warning("[CLIENT] No target group configured for notifications")
         
     except Exception as e:
         logger.error(f"[CLIENT] CRITICAL ERROR in process_contact: {e}", exc_info=True)
         await state.clear()
         await message.answer(
             f"❌ Произошла ошибка при создании заявки.\n\n"
-            f"Техническая информация:\n<code>{e}</code>\n\n"
+            f"Техническая информация:\n<code>{type(e).__name__}: {e}</code>\n\n"
             f"Пожалуйста, попробуйте позже или обратитесь в поддержку.",
             parse_mode="HTML",
             reply_markup=client_main_menu()
