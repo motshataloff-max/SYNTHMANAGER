@@ -1,43 +1,27 @@
 from aiogram.fsm.state import State, StatesGroup
 
 class ClientForm(StatesGroup):
+    """Состояния для формы заказа разработки"""
     title = State()
     description = State()
     budget = State()
-    contact = State()
+    contact_info = State()
     country = State()
-    age = State()
-    sam = State()
+    is_samozanyat = State()
 
 class DevForm(StatesGroup):
+    """Состояния для формы подачи заявки разработчиком"""
     name = State()
-    age = State()
-    lang = State()
-    projects = State()
-    hours = State()
-    goal = State()
-    sam = State()
+    stack = State()
+    experience = State()
+    portfolio = State()
 
 class PartnerForm(StatesGroup):
+    """Состояния для формы подачи заявки партнером"""
     name = State()
-    info = State()
-    offer = State()
-    country = State()
-    age = State()
-    contact = State()
+    niche = State()
+    experience = State()
 
 class SupportForm(StatesGroup):
-    waiting_message = State()
-
-class AssignForm(StatesGroup):
-    senior = State()
-    medium1 = State()
-    medium2 = State()
-
-class VacationForm(StatesGroup):
-    select_manager = State()
-    start_date = State()
-    end_date = State()
-
-class BroadcastForm(StatesGroup):
+    """Состояния для службы поддержки"""
     waiting_message = State()
