@@ -1,62 +1,57 @@
 import os
 from dataclasses import dataclass
-from dotenv import load_dotenv
-
-load_dotenv()
 
 @dataclass
 class Config:
+    # Telegram
     bot_token: str
     owner_id: int
     bot_username: str
-    ping_chat_id: int
+    
+    # ВКонтакте
+    vk_token: str
+    vk_group_id: int
+    
+    # ID групп
     admin_group_id: int
     support_group_id: int
     ceo_group_id: int
+    ping_chat_id: int
+    
+    # Команды
     team_heavy_id: int
     team_medium1_id: int
     team_medium2_id: int
     team_fast1_id: int
     team_fast2_id: int
     team_fast3_id: int
+    
+    # База данных
     db_path: str
 
-def _load() -> Config:
-    bot_token = os.getenv("BOT_TOKEN", "").strip()
-    if not bot_token: raise RuntimeError("BOT_TOKEN не задан")
-
-    owner_id_raw = os.getenv("OWNER_ID", "").strip()
-    if not owner_id_raw: raise RuntimeError("OWNER_ID не задан")
-    owner_id = int(owner_id_raw)
-
-    bot_username = os.getenv("BOT_USERNAME", "").strip()
-    if not bot_username: raise RuntimeError("BOT_USERNAME не задан")
-
-    ping_chat_id_raw = os.getenv("PING_CHAT_ID", "").strip()
-    if not ping_chat_id_raw: raise RuntimeError("PING_CHAT_ID не задан")
-    ping_chat_id = int(ping_chat_id_raw)
-
-    admin_group_id = int(os.getenv("ADMIN_GROUP_ID", "-1009999999999"))
-    support_group_id = int(os.getenv("SUPPORT_GROUP_ID", "-1009999999999"))
-    ceo_group_id = int(os.getenv("CEO_GROUP_ID", "-1009999999999"))
-    team_heavy_id = int(os.getenv("TEAM_HEAVY_ID", "-1009999999999"))
-    team_medium1_id = int(os.getenv("TEAM_MEDIUM1_ID", "-1009999999999"))
-    team_medium2_id = int(os.getenv("TEAM_MEDIUM2_ID", "-1009999999999"))
-    team_fast1_id = int(os.getenv("TEAM_FAST1_ID", "-1009999999999"))
-    team_fast2_id = int(os.getenv("TEAM_FAST2_ID", "-1009999999999"))
-    team_fast3_id = int(os.getenv("TEAM_FAST3_ID", "-1009999999999"))
-
-    data_dir = os.getenv("DATA_DIR", "data").strip()
-    db_path = os.path.join(data_dir, "bot.db")
-
+def load_config() -> Config:
+    """Загружает конфигурацию из переменных окружения"""
     return Config(
-        bot_token=bot_token, owner_id=owner_id, bot_username=bot_username,
-        ping_chat_id=ping_chat_id, admin_group_id=admin_group_id,
-        support_group_id=support_group_id, ceo_group_id=ceo_group_id,
-        team_heavy_id=team_heavy_id, team_medium1_id=team_medium1_id,
-        team_medium2_id=team_medium2_id, team_fast1_id=team_fast1_id,
-        team_fast2_id=team_fast2_id, team_fast3_id=team_fast3_id,
-        db_path=db_path,
+        bot_token=os.getenv("BOT_TOKEN", ""),
+        owner_id=int(os.getenv("OWNER_ID", "0")),
+        bot_username=os.getenv("BOT_USERNAME", ""),
+        
+        vk_token=os.getenv("VK_TOKEN", ""),
+        vk_group_id=int(os.getenv("VK_GROUP_ID", "0")),
+        
+        admin_group_id=int(os.getenv("ADMIN_GROUP_ID", "0")),
+        support_group_id=int(os.getenv("SUPPORT_GROUP_ID", "0")),
+        ceo_group_id=int(os.getenv("CEO_GROUP_ID", "0")),
+        ping_chat_id=int(os.getenv("PING_CHAT_ID", "0")),
+        
+        team_heavy_id=int(os.getenv("TEAM_HEAVY_ID", "0")),
+        team_medium1_id=int(os.getenv("TEAM_MEDIUM1_ID", "0")),
+        team_medium2_id=int(os.getenv("TEAM_MEDIUM2_ID", "0")),
+        team_fast1_id=int(os.getenv("TEAM_FAST1_ID", "0")),
+        team_fast2_id=int(os.getenv("TEAM_FAST2_ID", "0")),
+        team_fast3_id=int(os.getenv("TEAM_FAST3_ID", "0")),
+        
+        db_path=os.getenv("DB_PATH", "data/bot.db")
     )
 
-config = _load()
+config = load_config()
