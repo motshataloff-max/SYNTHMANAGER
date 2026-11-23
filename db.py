@@ -6,6 +6,7 @@ SYNTH Platform v2.0 - Единая база данных
 """
 import os
 import aiosqlite
+import secrets
 from typing import Optional, List, Dict
 from datetime import datetime
 
@@ -28,6 +29,8 @@ CREATE TABLE IF NOT EXISTS users (
     age INTEGER,
     country TEXT,
     is_samozanyat INTEGER DEFAULT 0,
+    client_code TEXT UNIQUE,
+    vk_id INTEGER,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -214,6 +217,53 @@ async def get_or_create_vk_user(vk_id: int, username: str = None, full_name: str
         return dict(await cur.fetchone())
 
 # ==========================================
+# БЛОК: ЛИЧНЫЙ КОД КЛИЕНТА (НОВОЕ)
+# ==========================================
+async def generate_client_code() -> str:
+    """Генерирует уникальный личный код клиента формата SYNTH-XXXX"""
+    while True:
+        code = f"SYNTH-{secrets.token_hex(2).upper()}"
+        async with _conn() as db:
+            cur = await db.execute("SELECT 1 FROM users WHERE client_code = ?", (code,))
+            if not await cur.fetchone():
+                return code
+
+async def get_user_by_client_code(client_code: str) -> Optional[Dict]:
+    """Ищет пользователя по личному коду"""
+    async with _conn() as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute("SELECT * FROM users WHERE client_code = ?", (client_code.upper(),))
+        row = await cur.fetchone()
+        return dict(row) if row else None
+
+async def ensure_client_code(user_id: int) -> str:
+    """Гарантирует, что у пользователя есть личный код. Если нет — генерирует."""
+    user = await get_user(user_id)
+    if user and user.get('client_code'):
+        return user['client_code']
+    
+    code = await generate_client_code()
+    async with _conn() as db:
+        await db.execute("UPDATE users SET client_code = ? WHERE telegram_id = ?", (code, user_id))
+        await db.commit()
+    return code
+
+async def link_vk_to_user(telegram_id: int, vk_id: int) -> bool:
+    """Привязывает VK ID к существующему пользователю"""
+    async with _conn() as db:
+        await db.execute("UPDATE users SET vk_id = ? WHERE telegram_id = ?", (vk_id, telegram_id))
+        await db.commit()
+        return True
+
+async def get_user_by_vk_id(vk_id: int) -> Optional[Dict]:
+    """Ищет пользователя по VK ID"""
+    async with _conn() as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute("SELECT * FROM users WHERE vk_id = ?", (vk_id,))
+        row = await cur.fetchone()
+        return dict(row) if row else None
+
+# ==========================================
 # БЛОК: РОЛИ (ROLES)
 # ==========================================
 async def get_role(user_id: int, role: str) -> Optional[Dict]:
@@ -308,7 +358,7 @@ async def update_team_chat_id(team_name: str, chat_id: int) -> None:
         await db.commit()
 
 # ==========================================
-# БЛОК: ТИКЕТЫ (TICKETS) - НОВАЯ СИСТЕМА v2.0
+# БЛОК: ТИКЕТЫ (TICKETS)
 # ==========================================
 async def generate_ticket_number() -> str:
     """Генерирует уникальный трек-номер формата SYNTH-YYYY-NNNN"""
@@ -391,6 +441,35 @@ async def get_all_active_tickets() -> List[Dict]:
         return [dict(row) for row in await cur.fetchall()]
 
 # ==========================================
+# БЛОК: МОДЕРАЦИЯ И БАНЫ (АДМИНКА)
+# ==========================================
+async def get_pending_roles() -> List[Dict]:
+    """Получает все заявки на роли со статусом pending (для модерации)"""
+    async with _conn() as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute("""
+            SELECT r.*, u.username, u.full_name 
+            FROM roles r 
+            LEFT JOIN users u ON r.telegram_id = u.telegram_id
+            WHERE r.status = 'pending'
+            ORDER BY r.created_at DESC
+            LIMIT 50
+        """)
+        return [dict(row) for row in await cur.fetchall()]
+
+async def get_all_banned_users() -> List[Dict]:
+    """Получает список всех забаненных пользователей"""
+    async with _conn() as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute("""
+            SELECT b.*, u.username, u.full_name 
+            FROM banned_users b 
+            LEFT JOIN users u ON b.telegram_id = u.telegram_id
+            ORDER BY b.created_at DESC
+        """)
+        return [dict(row) for row in await cur.fetchall()]
+
+# ==========================================
 # БЛОК: СТАТИСТИКА И НАСТРОЙКИ
 # ==========================================
 async def general_stats() -> Dict:
@@ -454,31 +533,3 @@ async def list_projects(limit: int = 50) -> List[Dict]:
         db.row_factory = aiosqlite.Row
         cur = await db.execute("SELECT * FROM projects ORDER BY id DESC LIMIT ?", (limit,))
         return [dict(r) for r in await cur.fetchall()]
-# ==========================================
-# БЛОК: МОДЕРАЦИЯ И БАНЫ (АДМИНКА)
-# ==========================================
-async def get_pending_roles() -> List[Dict]:
-    """Получает все заявки на роли со статусом pending (для модерации)"""
-    async with _conn() as db:
-        db.row_factory = aiosqlite.Row
-        cur = await db.execute("""
-            SELECT r.*, u.username, u.full_name 
-            FROM roles r 
-            LEFT JOIN users u ON r.telegram_id = u.telegram_id
-            WHERE r.status = 'pending'
-            ORDER BY r.created_at DESC
-            LIMIT 50
-        """)
-        return [dict(row) for row in await cur.fetchall()]
-
-async def get_all_banned_users() -> List[Dict]:
-    """Получает список всех забаненных пользователей"""
-    async with _conn() as db:
-        db.row_factory = aiosqlite.Row
-        cur = await db.execute("""
-            SELECT b.*, u.username, u.full_name 
-            FROM banned_users b 
-            LEFT JOIN users u ON b.telegram_id = u.telegram_id
-            ORDER BY b.created_at DESC
-        """)
-        return [dict(row) for row in await cur.fetchall()]
