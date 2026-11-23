@@ -79,3 +79,4 @@ async def process_referrer(message: Message, state: FSMContext):
             "❌ Произошла ошибка при отправке заявки. Попробуйте позже.",
             reply_markup=main_menu()
         )
+
