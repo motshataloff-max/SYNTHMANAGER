@@ -1,3 +1,9 @@
+"""
+SYNTH Platform v2.0 - Главный файл
+===================================
+Telegram-бот для управления заявками, поддержкой и админкой.
+VK-бот отключён (переходим на VK Mini App).
+"""
 import asyncio
 import logging
 import os
@@ -12,9 +18,6 @@ from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import BotCommand, FSInputFile, BufferedInputFile
-
-import vk_api
-from vk_api.longpoll import VkLongPoll, VkEventType
 
 import db
 from config import config
@@ -34,7 +37,7 @@ def run_flask():
     app.run(host="0.0.0.0", port=port, use_reloader=False)
 
 # ==========================================
-# 2. DNS-ПАТЧ
+# 2. DNS-ПАТЧ ДЛЯ TELEGRAM
 # ==========================================
 def _patch_dns() -> None:
     _orig = socket.getaddrinfo
@@ -122,62 +125,6 @@ async def daily_backup_task(bot: Bot):
         except Exception as e:
             logging.error(f"❌ Ошибка бэкапа БД: {e}")
 
-def run_vk_bot_sync(tg_bot: Bot):
-    if not config.vk_token or config.vk_group_id == 0:
-        logging.info("⚠️ VK_TOKEN или VK_GROUP_ID не найдены. VK-бот не запущен.")
-        return
-    
-    try:
-        vk_session = vk_api.VkApi(token=config.vk_token)
-        longpoll = VkLongPoll(vk_session)
-        vk = vk_session.get_api()
-        logging.info("✅ VK Бот SYNTH запущен и слушает сообщения...")
-        
-        for event in longpoll.listen():
-            if event.type == VkEventType.MESSAGE_NEW and event.to_me:
-                vk_id = event.user_id
-                text = event.text.lower().strip()
-                
-                try:
-                    user_info = vk.users.get(user_ids=vk_id)[0]
-                    name = f"{user_info.get('first_name', '')} {user_info.get('last_name', '')}".strip() or "VK Пользователь"
-                except:
-                    name = "VK Пользователь"
-
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                try:
-                    user = loop.run_until_complete(db.get_or_create_vk_user(vk_id=vk_id, username=f"vk_{vk_id}", full_name=name))
-                    user_id = user['id']
-                    
-                    if text in ["привет", "здравствуйте", "хай", "поддержка", "помощь"]:
-                        ticket = loop.run_until_complete(db.create_ticket(
-                            user_id=user_id, channel='vk', type='support', 
-                            title='Обращение в поддержку', description=event.text
-                        ))
-                        response = f"Привет! 👋 Ваша заявка создана!\n\n📋 Номер заявки: {ticket['id']}\n🎫 Ваш тикет: {ticket['ticket_number']}\n\nСохраните его. Менеджер скоро свяжется!"
-                        
-                        header = f"🆘 <b>Новый тикет VK: {ticket['ticket_number']}</b>\n👤 <b>Клиент:</b> {name} (VK: <code>{vk_id}</code>)\n💬 <b>Сообщение:</b>\n{event.text}"
-                        loop.run_until_complete(tg_bot.send_message(config.support_group_id, header, parse_mode="HTML"))
-                    
-                    elif text in ["цена", "стоимость", "бюджет"]:
-                        response = "Стоимость от 500 ₽. Опишите задачу, и мы оценим!"
-                    elif text in ["контакты", "телеграм", "тг", "tg"]:
-                        response = "📱 Наш основной бот: @Synthmanager_bot"
-                    else:
-                        response = "Спасибо за сообщение! 📩\nДля заявки напишите 'поддержка' или перейдите в Telegram: @Synthmanager_bot"
-
-                    try:
-                        vk.messages.send(user_id=vk_id, message=response, random_id=0)
-                        logging.info(f"✅ VK: Ответ отправлен {vk_id}")
-                    except Exception as e:
-                        logging.error(f"❌ VK Ошибка отправки: {e}")
-                finally:
-                    loop.close()
-                    
-    except Exception as e:
-        logging.error(f"❌ Ошибка VK-бота: {e}")
-
 # ==========================================
 # 4. ГЛАВНАЯ ФУНКЦИЯ
 # ==========================================
@@ -195,16 +142,15 @@ async def main() -> None:
     bot = Bot(config.bot_token, session=session, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher(storage=MemoryStorage())
 
-    # 🔥 ВАЖНО: ПОРЯДОК ПОДКЛЮЧЕНИЯ РОУТЕРОВ
-    # Сначала специфичные (support, tickets), в самом конце - common (с catch_all)
-    dp.include_router(support.router)   # Поддержка (FSM states)
-    dp.include_router(tickets.router)   # Тикеты и статусы
-    dp.include_router(client.router)    # Заявки на разработк
-    dp.include_router(dev.router)       # Разработчики
-    dp.include_router(partner.router)   # Партнёры
-    dp.include_router(projects.router)  # Проекты
-    dp.include_router(admin.router)     # Админка
-    dp.include_router(common.router)    # Общий (СТРОГО В КОНЦЕ!)
+    # 🔥 ПОРЯДОК ПОДКЛЮЧЕНИЯ РОУТЕРОВ
+    dp.include_router(support.router)
+    dp.include_router(tickets.router)
+    dp.include_router(client.router)
+    dp.include_router(dev.router)
+    dp.include_router(partner.router)
+    dp.include_router(projects.router)
+    dp.include_router(admin.router)
+    dp.include_router(common.router)
 
     await bot.delete_webhook(drop_pending_updates=True)
     
@@ -221,8 +167,6 @@ async def main() -> None:
 
     Thread(target=run_flask, daemon=True).start()
     logging.info("🌐 Flask started")
-    
-    Thread(target=run_vk_bot_sync, args=(bot,), daemon=True).start()
     
     asyncio.create_task(hourly_report_task(bot))
     asyncio.create_task(daily_report_task(bot))
