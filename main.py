@@ -23,7 +23,7 @@ from aiogram.types import BotCommand, FSInputFile, BufferedInputFile
 
 import db
 from config import config
-from handlers import admin, client, common, dev, partner, projects, support, tickets
+from handlershandlers import admin, client, common, dev, partner, projects, support, tickets
 
 # ... ДАЛЬШЕ ВЕСЬ ОСТАЛЬНОЙ ТВОЙ КОД БЕЗ ИЗМЕНЕНИЙ ...
 
@@ -300,5 +300,6 @@ async def main() -> None:
 if __name__ == "__main__":
     import asyncio
     asyncio.run(main())
+
 
 
