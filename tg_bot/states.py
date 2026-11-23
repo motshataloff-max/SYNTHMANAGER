@@ -25,3 +25,4 @@ class PartnerForm(StatesGroup):
 class SupportForm(StatesGroup):
     """Состояния для службы поддержки"""
     waiting_message = State()
+
