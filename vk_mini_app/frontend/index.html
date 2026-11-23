@@ -29,10 +29,10 @@
     <!-- ЭКРАН ВХОДА -->
     <div id="login-screen" class="card">
         <h2>👋 Добро пожаловать в SYNTH</h2>
-        <p style="margin-bottom: 16px; color: #666;">Введите ваш личный код клиента из Telegram-бота, чтобы объединить аккаунты.</p>
+        <p style="margin-bottom: 16px; color: #666;">Введите ваш личный код клиента из Telegram-бота.</p>
         <input class="input" id="login-code" placeholder="Код клиента (например, SYNTH-A7F3)">
         <button class="btn" onclick="login(false)">Войти по коду</button>
-        <button class="btn btn-secondary" onclick="login(true)">Продолжить без кода (новый аккаунт)</button>
+        <button class="btn btn-secondary" onclick="login(true)">Продолжить без кода</button>
     </div>
 
     <!-- ОСНОВНОЙ ИНТЕРФЕЙС -->
@@ -58,17 +58,17 @@
 
         <div id="new-order" class="card hidden">
             <h2>🛒 Новая заявка</h2>
-            <input class="input" id="order-title" placeholder="Краткое название (напр. Бот для кофейни)">
-            <input class="input" id="order-desc" placeholder="Подробное описание задачи">
+            <input class="input" id="order-title" placeholder="Краткое название">
+            <input class="input" id="order-desc" placeholder="Подробное описание">
             <input class="input" id="order-budget" type="number" placeholder="Бюджет в ₽ (мин. 150)">
-            <input class="input" id="order-contact" placeholder="Ваш контакт (Telegram/WhatsApp)">
+            <input class="input" id="order-contact" placeholder="Ваш контакт">
             <button class="btn" onclick="submitOrder()">Отправить заявку</button>
         </div>
 
         <div id="support" class="card hidden">
             <h2>🆘 Поддержка</h2>
             <input class="input" id="support-msg" placeholder="Опишите вашу проблему...">
-            <button class="btn" onclick="submitSupport()">Отправить в поддержку</button>
+            <button class="btn" onclick="submitSupport()">Отправить</button>
         </div>
     </div>
 
@@ -81,15 +81,13 @@
             vkBridge.send('VKWebAppGetUserInfo').then(data => {
                 vkUserId = data.id;
             }).catch(() => {
-                // Для тестов в браузере без VK
-                vkUserId = 999999; 
+                vkUserId = 999999; // Для тестов в браузере
             });
         });
 
         async function login(createNew = false) {
             const code = document.getElementById('login-code').value;
-            
-            const res = await fetch('/api/login', {
+            const res = await fetch('/api/vk/login', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -97,14 +95,12 @@
                     client_code: createNew ? '' : code
                 })
             });
-            
             const data = await res.json();
-            
             if (data.success) {
                 currentUser = data.user;
                 document.getElementById('login-screen').classList.add('hidden');
                 document.getElementById('main-screen').classList.remove('hidden');
-                document.getElementById('user-info').innerText = `${data.user.full_name}`;
+                document.getElementById('user-info').innerText = data.user.full_name;
                 document.getElementById('user-code').innerText = data.user.client_code;
                 loadTickets();
             } else {
@@ -121,25 +117,22 @@
         }
 
         async function loadTickets() {
-            const res = await fetch(`/api/tickets?vk_id=${vkUserId}`);
+            const res = await fetch(`/api/vk/tickets?vk_id=${vkUserId}`);
             const data = await res.json();
             const list = document.getElementById('tickets-list');
-            
             if (data.tickets.length === 0) {
-                list.innerHTML = "<p style='color:#666; text-align:center; padding: 20px;'>У вас пока нет заявок.</p>";
+                list.innerHTML = "<p style='color:#666; text-align:center; padding: 20px;'>Нет заявок.</p>";
                 return;
             }
-            
             list.innerHTML = data.tickets.map(t => `
                 <div class="ticket">
-                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <div style="display:flex; justify-content:space-between;">
                         <b>${t.ticket_number}</b> 
                         <span class="${t.status === 'new' ? 'status-new' : 'status-done'}">
-                            ${t.status === 'new' ? '🆕 Новая' : '✅ В работе/Готова'}
+                            ${t.status === 'new' ? '🆕 Новая' : '✅ В работе'}
                         </span>
                     </div>
-                    <small style="color:#666; display:block; margin-top:4px;">${t.title}</small>
-                    <small style="color:#666;">Бюджет: ${t.budget} ₽</small>
+                    <small style="color:#666;">${t.title} | ${t.budget} ₽</small>
                 </div>
             `).join('');
         }
@@ -155,7 +148,7 @@
                 return;
             }
 
-            const res = await fetch('/api/order', {
+            const res = await fetch('/api/vk/order', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -166,7 +159,6 @@
                     contact
                 })
             });
-            
             const data = await res.json();
             if (data.success) {
                 alert(`✅ Заявка создана! Тикет: ${data.ticket_number}`);
@@ -184,12 +176,11 @@
             const msg = document.getElementById('support-msg').value;
             if (!msg) return alert("Введите сообщение");
 
-            const res = await fetch('/api/support', {
+            const res = await fetch('/api/vk/support', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ vk_id: vkUserId, message: msg })
             });
-            
             const data = await res.json();
             if (data.success) {
                 alert(`✅ Отправлено! Тикет: ${data.ticket_number}`);
