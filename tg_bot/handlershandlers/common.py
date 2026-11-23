@@ -381,3 +381,4 @@ async def catch_all_text(message: Message, state: FSMContext):
         "🤔 Я не распознал команду. Пожалуйста, используйте кнопки меню ниже 👇",
         reply_markup=await _welcome_kb(message.from_user.id)
     )
+
