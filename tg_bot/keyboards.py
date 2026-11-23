@@ -113,3 +113,4 @@ def assign_team_kb(teams: list) -> InlineKeyboardMarkup:
             ])
     keyboard.append([InlineKeyboardButton(text="❌ Отмена назначения", callback_data="assign_cancel")])
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
