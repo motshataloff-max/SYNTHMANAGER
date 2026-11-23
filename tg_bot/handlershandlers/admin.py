@@ -402,3 +402,4 @@ async def cycle_team_status(callback: CallbackQuery):
 async def admin_back(callback: CallbackQuery):
     await callback.message.edit_text("Главное меню:", reply_markup=admin_main_menu())
     await callback.answer()
+
