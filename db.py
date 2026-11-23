@@ -534,3 +534,4 @@ async def list_projects(limit: int = 50) -> List[Dict]:
         cur = await db.execute("SELECT * FROM projects ORDER BY id DESC LIMIT ?", (limit,))
         return [dict(r) for r in await cur.fetchall()]
 
+
