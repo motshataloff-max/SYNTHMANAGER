@@ -89,3 +89,4 @@ async def process_experience(message: Message, state: FSMContext, bot: Bot):
         logger.info(f"[DEV] Notification sent to group {target_group}")
     except Exception as e:
         logger.error(f"[DEV] Failed to send notification to group: {e}", exc_info=True)
+
