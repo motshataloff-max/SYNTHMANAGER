@@ -178,8 +178,289 @@ async def main() -> None:
     
     logging.info("🚀 SYNTH Platform v2.0 started successfully!")
     await dp.start_polling(bot)
+# ==========================================
+# VK MINI APP API (Добавляем прямо в основной Flask)
+# ==========================================
+import sqlite3
+import secrets
+from datetime import datetime
+from flask import request, jsonify
 
+# Путь к базе данных (теперь он точно один для всего)
+DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "bot.db")
+
+def get_db_sync():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+@app.route('/vk-app')
+def vk_app_page():
+    return """
+    <!DOCTYPE html>
+    <html lang="ru">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+        <title>SYNTH</title>
+        <script src="https://unpkg.com/@vkontakte/vk-bridge/dist/browser.min.js"></script>
+        <style>
+            * { box-sizing: border-box; margin: 0; padding: 0; }
+            body { font-family: -apple-system, BlinkMacSystemFont, 'Roboto', sans-serif; background: #edeef0; color: #000; padding: 16px; }
+            .card { background: #fff; border-radius: 12px; padding: 16px; margin-bottom: 12px; box-shadow: 0 1px 2px rgba(0,0,0,0.1); }
+            .btn { background: #0077FF; color: #fff; border: none; border-radius: 8px; padding: 12px; width: 100%; font-size: 16px; font-weight: 500; cursor: pointer; margin-top: 8px; }
+            .btn:active { opacity: 0.8; }
+            .btn-secondary { background: #99a2ad; }
+            .input { width: 100%; padding: 12px; border: 1px solid #dce1e6; border-radius: 8px; font-size: 16px; margin-bottom: 8px; }
+            .tabs { display: flex; gap: 8px; margin-bottom: 16px; overflow-x: auto; padding-bottom: 4px; }
+            .tab { background: #e1e3e6; padding: 8px 16px; border-radius: 20px; white-space: nowrap; cursor: pointer; font-size: 14px; }
+            .tab.active { background: #0077FF; color: #fff; }
+            .hidden { display: none; }
+            h2 { margin-bottom: 12px; font-size: 20px; }
+            .status-new { color: #0077FF; font-weight: bold; }
+            .status-done { color: #4bb34b; font-weight: bold; }
+            .ticket { border-bottom: 1px solid #eee; padding: 12px 0; }
+            .ticket:last-child { border-bottom: none; }
+            code { background: #f0f2f5; padding: 2px 6px; border-radius: 4px; font-size: 14px; }
+        </style>
+    </head>
+    <body>
+        <div id="login-screen" class="card">
+            <h2>👋 Добро пожаловать в SYNTH</h2>
+            <p style="margin-bottom: 16px; color: #666;">Введите ваш личный код клиента из Telegram-бота.</p>
+            <input class="input" id="login-code" placeholder="Код клиента (например, SYNTH-A7F3)">
+            <button class="btn" onclick="login(false)">Войти по коду</button>
+            <button class="btn btn-secondary" onclick="login(true)">Продолжить без кода</button>
+        </div>
+
+        <div id="main-screen" class="hidden">
+            <div class="tabs">
+                <div class="tab active" onclick="showTab('home')">Главная</div>
+                <div class="tab" onclick="showTab('orders')">Мои заявки</div>
+                <div class="tab" onclick="showTab('new-order')">Новая заявка</div>
+                <div class="tab" onclick="showTab('support')">Поддержка</div>
+            </div>
+            <div id="home" class="card">
+                <h2>👋 Добро пожаловать</h2>
+                <p id="user-info" style="margin-bottom: 8px;"></p>
+                <p style="margin-bottom: 16px;"><b>Ваш код:</b> <code id="user-code"></code></p>
+                <button class="btn" onclick="showTab('new-order')">🛒 Заказать разработку</button>
+            </div>
+            <div id="orders" class="card hidden">
+                <h2>📂 Мои заявки</h2>
+                <div id="tickets-list">Загрузка...</div>
+            </div>
+            <div id="new-order" class="card hidden">
+                <h2>🛒 Новая заявка</h2>
+                <input class="input" id="order-title" placeholder="Краткое название">
+                <input class="input" id="order-desc" placeholder="Подробное описание">
+                <input class="input" id="order-budget" type="number" placeholder="Бюджет в ₽ (мин. 150)">
+                <input class="input" id="order-contact" placeholder="Ваш контакт">
+                <button class="btn" onclick="submitOrder()">Отправить заявку</button>
+            </div>
+            <div id="support" class="card hidden">
+                <h2>🆘 Поддержка</h2>
+                <input class="input" id="support-msg" placeholder="Опишите вашу проблему...">
+                <button class="btn" onclick="submitSupport()">Отправить</button>
+            </div>
+        </div>
+
+        <script>
+            let currentUser = null;
+            let vkUserId = null;
+            vkBridge.send('VKWebAppInit').then(() => {
+                vkBridge.send('VKWebAppGetUserInfo').then(data => { vkUserId = data.id; }).catch(() => { vkUserId = 999999; });
+            });
+
+            async function login(createNew = false) {
+                const code = document.getElementById('login-code').value;
+                const res = await fetch('/api/vk/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ vk_id: vkUserId, client_code: createNew ? '' : code })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    currentUser = data.user;
+                    document.getElementById('login-screen').classList.add('hidden');
+                    document.getElementById('main-screen').classList.remove('hidden');
+                    document.getElementById('user-info').innerText = data.user.full_name;
+                    document.getElementById('user-code').innerText = data.user.client_code;
+                    loadTickets();
+                } else {
+                    alert(data.error || "Ошибка входа");
+                }
+            }
+
+            function showTab(tabId) {
+                document.querySelectorAll('.card').forEach(el => el.classList.add('hidden'));
+                document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
+                document.getElementById(tabId).classList.remove('hidden');
+                event.target.classList.add('active');
+                if (tabId === 'orders') loadTickets();
+            }
+
+            async function loadTickets() {
+                const res = await fetch(`/api/vk/tickets?vk_id=${vkUserId}`);
+                const data = await res.json();
+                const list = document.getElementById('tickets-list');
+                if (data.tickets.length === 0) {
+                    list.innerHTML = "<p style='color:#666; text-align:center; padding: 20px;'>Нет заявок.</p>";
+                    return;
+                }
+                list.innerHTML = data.tickets.map(t => `
+                    <div class="ticket">
+                        <div style="display:flex; justify-content:space-between;">
+                            <b>${t.ticket_number}</b> 
+                            <span class="${t.status === 'new' ? 'status-new' : 'status-done'}">${t.status === 'new' ? '🆕 Новая' : '✅ В работе'}</span>
+                        </div>
+                        <small style="color:#666;">${t.title} | ${t.budget} ₽</small>
+                    </div>
+                `).join('');
+            }
+
+            async function submitOrder() {
+                const title = document.getElementById('order-title').value;
+                const desc = document.getElementById('order-desc').value;
+                const budget = document.getElementById('order-budget').value;
+                const contact = document.getElementById('order-contact').value;
+                if (!title || !budget || !contact) return alert("Заполните название, бюджет и контакт!");
+
+                const res = await fetch('/api/vk/order', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ vk_id: vkUserId, title, description: desc, budget: parseInt(budget), contact })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    alert(`✅ Заявка создана! Тикет: ${data.ticket_number}`);
+                    document.getElementById('order-title').value = '';
+                    document.getElementById('order-desc').value = '';
+                    document.getElementById('order-budget').value = '';
+                    document.getElementById('order-contact').value = '';
+                    showTab('orders');
+                } else {
+                    alert("Ошибка: " + data.error);
+                }
+            }
+
+            async function submitSupport() {
+                const msg = document.getElementById('support-msg').value;
+                if (!msg) return alert("Введите сообщение");
+                const res = await fetch('/api/vk/support', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ vk_id: vkUserId, message: msg })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    alert(`✅ Отправлено! Тикет: ${data.ticket_number}`);
+                    document.getElementById('support-msg').value = '';
+                } else {
+                    alert("Ошибка: " + data.error);
+                }
+            }
+        </script>
+    </body>
+    </html>
+    """
+
+@app.route('/api/vk/login', methods=['POST'])
+def vk_login():
+    data = request.json
+    vk_id = data.get('vk_id')
+    client_code = data.get('client_code', '').upper().strip()
+    if not vk_id: return jsonify({"error": "vk_id required"}), 400
+    
+    conn = get_db_sync()
+    cur = conn.execute("SELECT * FROM users WHERE vk_id = ?", (vk_id,))
+    user = cur.fetchone()
+    if user:
+        conn.close()
+        return jsonify({"success": True, "user": dict(user), "message": "С возвращением!"})
+    
+    if client_code:
+        cur = conn.execute("SELECT * FROM users WHERE client_code = ?", (client_code,))
+        user = cur.fetchone()
+        if user:
+            conn.execute("UPDATE users SET vk_id = ? WHERE telegram_id = ?", (vk_id, user['telegram_id']))
+            conn.commit()
+            conn.close()
+            return jsonify({"success": True, "user": dict(user), "message": "Аккаунты связаны!"})
+        else:
+            conn.close()
+            return jsonify({"error": "Неверный код клиента"}), 404
+    
+    new_code = f"SYNTH-{secrets.token_hex(2).upper()}"
+    conn.execute("INSERT INTO users (telegram_id, username, full_name, client_code, vk_id) VALUES (?, ?, ?, ?, ?)",
+                 (-int(vk_id), f"vk_{vk_id}", f"VK Пользователь", new_code, vk_id))
+    conn.commit()
+    cur = conn.execute("SELECT * FROM users WHERE vk_id = ?", (vk_id,))
+    user = cur.fetchone()
+    conn.close()
+    return jsonify({"success": True, "user": dict(user), "message": f"Создан аккаунт. Код: {new_code}"})
+
+@app.route('/api/vk/tickets', methods=['GET'])
+def vk_get_tickets():
+    vk_id = request.args.get('vk_id')
+    if not vk_id: return jsonify({"error": "vk_id required"}), 400
+    conn = get_db_sync()
+    cur = conn.execute("""
+        SELECT ticket_number, title, budget, status FROM tickets 
+        WHERE user_id = ? OR user_id = (SELECT telegram_id FROM users WHERE vk_id = ?)
+        ORDER BY created_at DESC
+    """, (-int(vk_id), vk_id))
+    tickets = [dict(row) for row in cur.fetchall()]
+    conn.close()
+    return jsonify({"tickets": tickets})
+
+@app.route('/api/vk/order', methods=['POST'])
+def vk_create_order():
+    data = request.json
+    vk_id, title, budget = data.get('vk_id'), data.get('title'), data.get('budget')
+    if not all([vk_id, title, budget]): return jsonify({"error": "Заполните поля"}), 400
+    
+    conn = get_db_sync()
+    cur = conn.execute("SELECT telegram_id FROM users WHERE vk_id = ?", (vk_id,))
+    row = cur.fetchone()
+    user_id = row['telegram_id'] if row else -int(vk_id)
+    
+    cur = conn.execute("SELECT current_number FROM ticket_counter WHERE id = 1")
+    current = (cur.fetchone()[0] if cur.fetchone() else 0) + 1
+    ticket_number = f"SYNTH-{datetime.now().year}-{current:04d}"
+    conn.execute("UPDATE ticket_counter SET current_number = ? WHERE id = 1", (current,))
+    
+    conn.execute("INSERT INTO tickets (ticket_number, user_id, channel, type, title, description, budget, status) VALUES (?, ?, 'vk', 'project', ?, ?, ?, 'new')",
+                 (ticket_number, user_id, title, f"{data.get('description', '')}\n📱 {data.get('contact', '')}", budget))
+    conn.execute("INSERT INTO ticket_history (ticket_number, action, old_value, new_value, changed_by) VALUES (?, 'created', NULL, 'new', ?)", (ticket_number, user_id))
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True, "ticket_number": ticket_number})
+
+@app.route('/api/vk/support', methods=['POST'])
+def vk_create_support():
+    data = request.json
+    vk_id, message = data.get('vk_id'), data.get('message')
+    if not all([vk_id, message]): return jsonify({"error": "Введите сообщение"}), 400
+    
+    conn = get_db_sync()
+    cur = conn.execute("SELECT telegram_id FROM users WHERE vk_id = ?", (vk_id,))
+    row = cur.fetchone()
+    user_id = row['telegram_id'] if row else -int(vk_id)
+    
+    cur = conn.execute("SELECT current_number FROM ticket_counter WHERE id = 1")
+    current = (cur.fetchone()[0] if cur.fetchone() else 0) + 1
+    ticket_number = f"SYNTH-{datetime.now().year}-{current:04d}"
+    conn.execute("UPDATE ticket_counter SET current_number = ? WHERE id = 1", (current,))
+    
+    conn.execute("INSERT INTO tickets (ticket_number, user_id, channel, type, title, description, status) VALUES (?, ?, 'vk', 'support', 'Обращение (VK)', ?, 'new')",
+                 (ticket_number, user_id, message))
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True, "ticket_number": ticket_number})
+    
 if __name__ == "__main__":
     asyncio.run(main())
+
 
 
