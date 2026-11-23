@@ -8,6 +8,10 @@ import asyncio
 import logging
 import os
 import socket
+import sys
+import os
+# Эта строка говорит Python'ю искать файлы на уровень выше, в корне проекта
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from datetime import datetime, timedelta
 from flask import Flask
 from threading import Thread
@@ -177,4 +181,5 @@ async def main() -> None:
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
