@@ -55,3 +55,4 @@ def load_config() -> Config:
     )
 
 config = load_config()
+
