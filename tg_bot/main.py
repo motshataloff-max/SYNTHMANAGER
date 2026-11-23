@@ -1,19 +1,12 @@
-"""
-SYNTH Platform v2.0 - Главный файл
-===================================
-Telegram-бот для управления заявками, поддержкой и админкой.
-VK-бот отключён (переходим на VK Mini App).
-"""
-import asyncio
-import logging
-import os
-import socket
 import sys
 import os
-# Эта строка говорит Python'ю искать файлы на уровень выше, в корне проекта
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Эта строка говорит Python'ю: "Ищи модули (типа handlers) в той же папке, где лежит main.py"
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+import logging
+import socket
 from datetime import datetime, timedelta
-from flask import Flask
+from flask import Flask, request, jsonify
 from threading import Thread
 
 from aiogram import Bot, Dispatcher
@@ -130,240 +123,28 @@ async def daily_backup_task(bot: Bot):
             logging.error(f"❌ Ошибка бэкапа БД: {e}")
 
 # ==========================================
-# 4. ГЛАВНАЯ ФУНКЦИЯ
-# ==========================================
-async def main() -> None:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
-    
-    await db.init(config.db_path)
-    logging.info("✅ База данных инициализирована")
-
-    proxy = os.getenv("PROXY_URL", "").strip()
-    session = AiohttpSession(proxy=proxy) if proxy else AiohttpSession()
-    if not proxy: 
-        _patch_dns()
-
-    bot = Bot(config.bot_token, session=session, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
-    dp = Dispatcher(storage=MemoryStorage())
-
-    # 🔥 ПОРЯДОК ПОДКЛЮЧЕНИЯ РОУТЕРОВ
-    dp.include_router(support.router)
-    dp.include_router(tickets.router)
-    dp.include_router(client.router)
-    dp.include_router(dev.router)
-    dp.include_router(partner.router)
-    dp.include_router(projects.router)
-    dp.include_router(admin.router)
-    dp.include_router(common.router)
-
-    await bot.delete_webhook(drop_pending_updates=True)
-    
-    await bot.set_my_commands([
-        BotCommand(command="start", description="🚀 Запустить бота"),
-        BotCommand(command="status", description="📋 Проверить статус тикета"),
-        BotCommand(command="my_tickets", description="📂 Мои заявки"),
-        BotCommand(command="cancel", description="❌ Отменить"),
-        BotCommand(command="ban", description="🚫 Забанить (CEO)"),
-        BotCommand(command="unban", description="✅ Разбанить (CEO)"),
-        BotCommand(command="backup_db", description="💾 Ручной бэкап"),
-    ])
-    logging.info("✅ Меню команд обновлено")
-
-    Thread(target=run_flask, daemon=True).start()
-    logging.info("🌐 Flask started")
-    
-    asyncio.create_task(hourly_report_task(bot))
-    asyncio.create_task(daily_report_task(bot))
-    asyncio.create_task(daily_backup_task(bot))
-    
-    logging.info("🚀 SYNTH Platform v2.0 started successfully!")
-    await dp.start_polling(bot)
-# ==========================================
-# VK MINI APP API (Добавляем прямо в основной Flask)
+# 4. VK MINI APP API (ЧИТАЕТ ИЗ ФАЙЛА)
 # ==========================================
 import sqlite3
 import secrets
 from datetime import datetime
-from flask import request, jsonify
-
-# Путь к базе данных (теперь он точно один для всего)
-DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "bot.db")
-
-def get_db_sync():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
 
 @app.route('/vk-app')
 def vk_app_page():
-    return """
-    <!DOCTYPE html>
-    <html lang="ru">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-        <title>SYNTH</title>
-        <script src="https://unpkg.com/@vkontakte/vk-bridge/dist/browser.min.js"></script>
-        <style>
-            * { box-sizing: border-box; margin: 0; padding: 0; }
-            body { font-family: -apple-system, BlinkMacSystemFont, 'Roboto', sans-serif; background: #edeef0; color: #000; padding: 16px; }
-            .card { background: #fff; border-radius: 12px; padding: 16px; margin-bottom: 12px; box-shadow: 0 1px 2px rgba(0,0,0,0.1); }
-            .btn { background: #0077FF; color: #fff; border: none; border-radius: 8px; padding: 12px; width: 100%; font-size: 16px; font-weight: 500; cursor: pointer; margin-top: 8px; }
-            .btn:active { opacity: 0.8; }
-            .btn-secondary { background: #99a2ad; }
-            .input { width: 100%; padding: 12px; border: 1px solid #dce1e6; border-radius: 8px; font-size: 16px; margin-bottom: 8px; }
-            .tabs { display: flex; gap: 8px; margin-bottom: 16px; overflow-x: auto; padding-bottom: 4px; }
-            .tab { background: #e1e3e6; padding: 8px 16px; border-radius: 20px; white-space: nowrap; cursor: pointer; font-size: 14px; }
-            .tab.active { background: #0077FF; color: #fff; }
-            .hidden { display: none; }
-            h2 { margin-bottom: 12px; font-size: 20px; }
-            .status-new { color: #0077FF; font-weight: bold; }
-            .status-done { color: #4bb34b; font-weight: bold; }
-            .ticket { border-bottom: 1px solid #eee; padding: 12px 0; }
-            .ticket:last-child { border-bottom: none; }
-            code { background: #f0f2f5; padding: 2px 6px; border-radius: 4px; font-size: 14px; }
-        </style>
-    </head>
-    <body>
-        <div id="login-screen" class="card">
-            <h2>👋 Добро пожаловать в SYNTH</h2>
-            <p style="margin-bottom: 16px; color: #666;">Введите ваш личный код клиента из Telegram-бота.</p>
-            <input class="input" id="login-code" placeholder="Код клиента (например, SYNTH-A7F3)">
-            <button class="btn" onclick="login(false)">Войти по коду</button>
-            <button class="btn btn-secondary" onclick="login(true)">Продолжить без кода</button>
-        </div>
+    """Отдает HTML-страницу для VK Mini App из отдельного файла"""
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    html_path = os.path.join(base_dir, "vk_mini_app", "frontend", "index.html")
+    
+    try:
+        with open(html_path, 'r', encoding='utf-8') as f:
+            return f.read()
+    except FileNotFoundError:
+        return "Ошибка: файл vk_mini_app/frontend/index.html не найден", 500
 
-        <div id="main-screen" class="hidden">
-            <div class="tabs">
-                <div class="tab active" onclick="showTab('home')">Главная</div>
-                <div class="tab" onclick="showTab('orders')">Мои заявки</div>
-                <div class="tab" onclick="showTab('new-order')">Новая заявка</div>
-                <div class="tab" onclick="showTab('support')">Поддержка</div>
-            </div>
-            <div id="home" class="card">
-                <h2>👋 Добро пожаловать</h2>
-                <p id="user-info" style="margin-bottom: 8px;"></p>
-                <p style="margin-bottom: 16px;"><b>Ваш код:</b> <code id="user-code"></code></p>
-                <button class="btn" onclick="showTab('new-order')">🛒 Заказать разработку</button>
-            </div>
-            <div id="orders" class="card hidden">
-                <h2>📂 Мои заявки</h2>
-                <div id="tickets-list">Загрузка...</div>
-            </div>
-            <div id="new-order" class="card hidden">
-                <h2>🛒 Новая заявка</h2>
-                <input class="input" id="order-title" placeholder="Краткое название">
-                <input class="input" id="order-desc" placeholder="Подробное описание">
-                <input class="input" id="order-budget" type="number" placeholder="Бюджет в ₽ (мин. 150)">
-                <input class="input" id="order-contact" placeholder="Ваш контакт">
-                <button class="btn" onclick="submitOrder()">Отправить заявку</button>
-            </div>
-            <div id="support" class="card hidden">
-                <h2>🆘 Поддержка</h2>
-                <input class="input" id="support-msg" placeholder="Опишите вашу проблему...">
-                <button class="btn" onclick="submitSupport()">Отправить</button>
-            </div>
-        </div>
-
-        <script>
-            let currentUser = null;
-            let vkUserId = null;
-            vkBridge.send('VKWebAppInit').then(() => {
-                vkBridge.send('VKWebAppGetUserInfo').then(data => { vkUserId = data.id; }).catch(() => { vkUserId = 999999; });
-            });
-
-            async function login(createNew = false) {
-                const code = document.getElementById('login-code').value;
-                const res = await fetch('/api/vk/login', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ vk_id: vkUserId, client_code: createNew ? '' : code })
-                });
-                const data = await res.json();
-                if (data.success) {
-                    currentUser = data.user;
-                    document.getElementById('login-screen').classList.add('hidden');
-                    document.getElementById('main-screen').classList.remove('hidden');
-                    document.getElementById('user-info').innerText = data.user.full_name;
-                    document.getElementById('user-code').innerText = data.user.client_code;
-                    loadTickets();
-                } else {
-                    alert(data.error || "Ошибка входа");
-                }
-            }
-
-            function showTab(tabId) {
-                document.querySelectorAll('.card').forEach(el => el.classList.add('hidden'));
-                document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
-                document.getElementById(tabId).classList.remove('hidden');
-                event.target.classList.add('active');
-                if (tabId === 'orders') loadTickets();
-            }
-
-            async function loadTickets() {
-                const res = await fetch(`/api/vk/tickets?vk_id=${vkUserId}`);
-                const data = await res.json();
-                const list = document.getElementById('tickets-list');
-                if (data.tickets.length === 0) {
-                    list.innerHTML = "<p style='color:#666; text-align:center; padding: 20px;'>Нет заявок.</p>";
-                    return;
-                }
-                list.innerHTML = data.tickets.map(t => `
-                    <div class="ticket">
-                        <div style="display:flex; justify-content:space-between;">
-                            <b>${t.ticket_number}</b> 
-                            <span class="${t.status === 'new' ? 'status-new' : 'status-done'}">${t.status === 'new' ? '🆕 Новая' : '✅ В работе'}</span>
-                        </div>
-                        <small style="color:#666;">${t.title} | ${t.budget} ₽</small>
-                    </div>
-                `).join('');
-            }
-
-            async function submitOrder() {
-                const title = document.getElementById('order-title').value;
-                const desc = document.getElementById('order-desc').value;
-                const budget = document.getElementById('order-budget').value;
-                const contact = document.getElementById('order-contact').value;
-                if (!title || !budget || !contact) return alert("Заполните название, бюджет и контакт!");
-
-                const res = await fetch('/api/vk/order', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ vk_id: vkUserId, title, description: desc, budget: parseInt(budget), contact })
-                });
-                const data = await res.json();
-                if (data.success) {
-                    alert(`✅ Заявка создана! Тикет: ${data.ticket_number}`);
-                    document.getElementById('order-title').value = '';
-                    document.getElementById('order-desc').value = '';
-                    document.getElementById('order-budget').value = '';
-                    document.getElementById('order-contact').value = '';
-                    showTab('orders');
-                } else {
-                    alert("Ошибка: " + data.error);
-                }
-            }
-
-            async function submitSupport() {
-                const msg = document.getElementById('support-msg').value;
-                if (!msg) return alert("Введите сообщение");
-                const res = await fetch('/api/vk/support', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ vk_id: vkUserId, message: msg })
-                });
-                const data = await res.json();
-                if (data.success) {
-                    alert(`✅ Отправлено! Тикет: ${data.ticket_number}`);
-                    document.getElementById('support-msg').value = '';
-                } else {
-                    alert("Ошибка: " + data.error);
-                }
-            }
-        </script>
-    </body>
-    </html>
-    """
+def get_db_sync():
+    conn = sqlite3.connect(config.db_path)
+    conn.row_factory = sqlite3.Row
+    return conn
 
 @app.route('/api/vk/login', methods=['POST'])
 def vk_login():
@@ -458,9 +239,57 @@ def vk_create_support():
     conn.commit()
     conn.close()
     return jsonify({"success": True, "ticket_number": ticket_number})
+
+# ==========================================
+# 5. ГЛАВНАЯ ФУНКЦИЯ
+# ==========================================
+async def main() -> None:
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
     
+    await db.init(config.db_path)
+    logging.info("✅ База данных инициализирована")
+
+    proxy = os.getenv("PROXY_URL", "").strip()
+    session = AiohttpSession(proxy=proxy) if proxy else AiohttpSession()
+    if not proxy: 
+        _patch_dns()
+
+    bot = Bot(config.bot_token, session=session, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+    dp = Dispatcher(storage=MemoryStorage())
+
+    # 🔥 ПОРЯДОК ПОДКЛЮЧЕНИЯ РОУТЕРОВ
+    dp.include_router(support.router)
+    dp.include_router(tickets.router)
+    dp.include_router(client.router)
+    dp.include_router(dev.router)
+    dp.include_router(partner.router)
+    dp.include_router(projects.router)
+    dp.include_router(admin.router)
+    dp.include_router(common.router)
+
+    await bot.delete_webhook(drop_pending_updates=True)
+    
+    await bot.set_my_commands([
+        BotCommand(command="start", description="🚀 Запустить бота"),
+        BotCommand(command="status", description="📋 Проверить статус тикета"),
+        BotCommand(command="my_tickets", description="📂 Мои заявки"),
+        BotCommand(command="cancel", description="❌ Отменить"),
+        BotCommand(command="ban", description="🚫 Забанить (CEO)"),
+        BotCommand(command="unban", description="✅ Разбанить (CEO)"),
+        BotCommand(command="backup_db", description="💾 Ручной бэкап"),
+    ])
+    logging.info("✅ Меню команд обновлено")
+
+    Thread(target=run_flask, daemon=True).start()
+    logging.info("🌐 Flask started")
+    
+    asyncio.create_task(hourly_report_task(bot))
+    asyncio.create_task(daily_report_task(bot))
+    asyncio.create_task(daily_backup_task(bot))
+    
+    logging.info("🚀 SYNTH Platform v2.0 started successfully!")
+    await dp.start_polling(bot)
+
 if __name__ == "__main__":
+    import asyncio
     asyncio.run(main())
-
-
-
