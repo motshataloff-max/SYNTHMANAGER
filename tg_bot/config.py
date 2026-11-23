@@ -27,7 +27,7 @@ class Config:
     team_fast3_id: int
     
     # База данных
-    db_path: str
+    db_path=os.getenv("DB_PATH", os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "bot.db"))
 
 def load_config() -> Config:
     """Загружает конфигурацию из переменных окружения"""
@@ -55,4 +55,5 @@ def load_config() -> Config:
     )
 
 config = load_config()
+
 
