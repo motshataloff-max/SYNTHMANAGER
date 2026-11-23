@@ -1,7 +1,12 @@
 import sys
 import os
-# Эта строка говорит Python'ю: "Ищи модули (типа handlers) в той же папке, где лежит main.py"
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+# 🔥 МАГИЧЕСКИЙ БЛОК: автоматически находит папку handlers, где бы она ни лежала
+current_dir = os.path.dirname(os.path.abspath(__file__))
+if os.path.exists(os.path.join(current_dir, "tg_bot", "handlers")):
+    sys.path.insert(0, os.path.join(current_dir, "tg_bot"))
+else:
+    sys.path.insert(0, current_dir)
 
 import logging
 import socket
@@ -19,6 +24,8 @@ from aiogram.types import BotCommand, FSInputFile, BufferedInputFile
 import db
 from config import config
 from handlers import admin, client, common, dev, partner, projects, support, tickets
+
+# ... ДАЛЬШЕ ВЕСЬ ОСТАЛЬНОЙ ТВОЙ КОД БЕЗ ИЗМЕНЕНИЙ ...
 
 # ==========================================
 # 1. FLASK ДЛЯ RAILWAY
@@ -293,3 +300,4 @@ async def main() -> None:
 if __name__ == "__main__":
     import asyncio
     asyncio.run(main())
+
