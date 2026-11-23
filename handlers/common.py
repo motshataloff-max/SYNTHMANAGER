@@ -2,13 +2,12 @@
 SYNTH Platform v2.0 - Общие обработчики
 ========================================
 Базовые команды, кнопки меню, навигация.
-ВАЖНО: все фильтры разделены (нельзя смешивать Command и F.text через |).
 """
 import logging
 from aiogram import Router, F, Bot
 from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
-from aiogram.types import Message, FSInputFile
+from aiogram.types import Message, FSInputFile, InlineKeyboardMarkup, InlineKeyboardButton
 
 import db
 import texts
@@ -30,6 +29,7 @@ USER_COMMANDS = (
     "• 🔗 <b>Моя реферальная ссылка</b>\n"
     "• 📂 <b>Мои заявки</b>\n"
     "• 🔍 <b>Проверить статус заявки</b>\n"
+    "• 🎫 <b>Мой код клиента</b>\n"
     "• ℹ️ <b>О нас</b>\n"
     "• 🆘 <b>Поддержка</b>"
 )
@@ -60,7 +60,6 @@ BOSS_COMMANDS = (
 # ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
 # ==========================================
 async def _welcome_text(uid: int) -> str:
-    """Возвращает текст приветствия в зависимости от роли"""
     if uid == config.owner_id:
         return "👑 <b>Добро пожаловать, босс!</b>\n\n" + BOSS_COMMANDS
     if await db.has_active_role(uid, "manager"):
@@ -68,20 +67,30 @@ async def _welcome_text(uid: int) -> str:
     return texts.WELCOME + "\n\n" + USER_COMMANDS
 
 async def _welcome_kb(uid: int):
-    """Возвращает клавиатуру в зависимости от роли"""
     if uid == config.owner_id or await db.has_active_role(uid, "manager"):
         return admin_main_menu()
     return client_main_menu()
 
 # ==========================================
-# 1. БАЗОВЫЕ КОМАНДЫ (РАЗДЕЛЬНЫЕ ОБРАБОТЧИКИ)
+# 1. БАЗОВЫЕ КОМАНДЫ
 # ==========================================
 @router.message(CommandStart())
 async def start_plain(message: Message, state: FSMContext):
     """Команда /start — полный сброс и возврат в главное меню"""
     logger.info(f"[COMMON] User {message.from_user.id} executed /start")
     await state.clear()
-    await db.get_or_create_user(message.from_user)
+    user = await db.get_or_create_user(message.from_user)
+    
+    # 🔥 Генерируем личный код, если его еще нет
+    if not user.get('client_code'):
+        code = await db.ensure_client_code(message.from_user.id)
+        await message.answer(
+            f"🎉 <b>Добро пожаловать!</b>\n\n"
+            f"🎫 Ваш личный код клиента: <code>{code}</code>\n\n"
+            f"💡 Сохраните его. Используйте для входа в VK Mini App, чтобы все ваши заявки из Telegram и VK были в одном месте.",
+            parse_mode="HTML"
+        )
+    
     await message.answer(
         await _welcome_text(message.from_user.id),
         reply_markup=await _welcome_kb(message.from_user.id),
@@ -90,13 +99,11 @@ async def start_plain(message: Message, state: FSMContext):
 
 @router.message(Command("cancel"))
 async def cancel_command(message: Message, state: FSMContext):
-    """Команда /cancel"""
     await state.clear()
     await message.answer("❌ Действие отменено.", reply_markup=await _welcome_kb(message.from_user.id))
 
 @router.message(Command("help"))
 async def cmd_help(message: Message):
-    """Команда /help"""
     await message.answer(
         await _welcome_text(message.from_user.id),
         parse_mode="HTML",
@@ -104,11 +111,10 @@ async def cmd_help(message: Message):
     )
 
 # ==========================================
-# 2. КНОПКИ НАВИГАЦИИ (ГЛАВНОЕ МЕНЮ / РЕЖИМЫ)
+# 2. КНОПКИ НАВИГАЦИИ
 # ==========================================
 @router.message(F.text.in_({"🏠 Главное меню", "🔙 Главное меню", "🔙 Главное меню (Клиент)"}))
 async def force_main_menu(message: Message, state: FSMContext):
-    """Кнопки возврата в главное меню (с учётом роли)"""
     logger.info(f"[COMMON] User {message.from_user.id} clicked 'Главное меню'")
     await state.clear()
     await message.answer(
@@ -119,7 +125,6 @@ async def force_main_menu(message: Message, state: FSMContext):
 
 @router.message(F.text == "👤 Режим клиента")
 async def switch_to_client_mode(message: Message, state: FSMContext):
-    """Принудительное переключение в клиентское меню (для CEO/менеджеров)"""
     logger.info(f"[COMMON] User {message.from_user.id} switched to CLIENT mode")
     await state.clear()
     await message.answer(
@@ -132,7 +137,6 @@ async def switch_to_client_mode(message: Message, state: FSMContext):
 
 @router.message(F.text == "❌ Отмена")
 async def cancel_button(message: Message, state: FSMContext):
-    """Кнопка отмены"""
     await state.clear()
     await message.answer(
         "❌ Действие отменено.",
@@ -200,6 +204,23 @@ async def my_stats(message: Message, state: FSMContext):
         s = await db.pr_stats(uid)
         lines += ["", "<b>📣 Статистика пиарщика:</b>", f"Клиентов: <b>{s['clients']}</b>", f"Заказов: <b>{s['orders']}</b>"]
     await message.answer("\n".join(lines), parse_mode="HTML", reply_markup=await _welcome_kb(uid))
+
+@router.message(F.text == "🎫 Мой код клиента")
+async def show_client_code(message: Message, state: FSMContext):
+    """Показывает личный код клиента"""
+    logger.info(f"[COMMON] User {message.from_user.id} clicked 'Мой код клиента'")
+    await state.clear()
+    user_id = message.from_user.id
+    code = await db.ensure_client_code(user_id)
+    
+    await message.answer(
+        f"🎫 <b>Ваш личный код клиента:</b>\n\n"
+        f"<code>{code}</code>\n\n"
+        f"💡 Используйте этот код для входа в VK Mini App.\n"
+        f"Он свяжет ваш Telegram и VK аккаунты, чтобы все заявки были в одном месте.",
+        parse_mode="HTML",
+        reply_markup=client_main_menu()
+    )
 
 @router.message(F.text == "ℹ️ О нас")
 async def about(message: Message, state: FSMContext):
@@ -345,18 +366,13 @@ async def stats(message: Message):
     await message.answer(text, parse_mode="HTML")
 
 # ==========================================
-# 6. FALLBACK (ОБРАБОТКА НЕИЗВЕСТНЫХ СООБЩЕНИЙ)
+# 6. FALLBACK
 # ==========================================
-# ==========================================
-# 6. FALLBACK (ОБРАБОТКА НЕИЗВЕСТНЫХ СООБЩЕНИЙ)
-# ==========================================
-@router.message(F.text, F.chat.type == "private")  # <-- ДОБАВЛЕНО: только в личных чатах!
+@router.message(F.text, F.chat.type == "private")
 async def catch_all_text(message: Message, state: FSMContext):
-    """Ловит любой текст, который не попал в другие фильтры (ТОЛЬКО в ЛС)"""
     current_state = await state.get_state()
     
     if current_state:
-        # Пользователь в FSM-состоянии — пусть другой роутер обработает
         logger.info(f"[COMMON] User {message.from_user.id} in state {current_state}, text: {message.text[:50]}")
         return
     
