@@ -382,3 +382,4 @@ async def catch_all_text(message: Message, state: FSMContext):
         reply_markup=await _welcome_kb(message.from_user.id)
     )
 
+
