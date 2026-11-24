@@ -1,29 +1,75 @@
+"""
+SYNTH Platform v2.0 - Машина состояний (FSM)
+Только актуальные формы.
+"""
 from aiogram.fsm.state import State, StatesGroup
 
-class ClientForm(StatesGroup):
-    """Состояния для формы заказа разработки"""
-    title = State()
-    description = State()
-    budget = State()
-    contact_info = State()
-    country = State()
-    is_samozanyat = State()
+# ==========================================
+# 🛒 КЛИЕНТСКИЕ ФОРМЫ (5 основных услуг)
+# ==========================================
 
-class DevForm(StatesGroup):
-    """Состояния для формы подачи заявки разработчиком"""
+class ClientOrderForm(StatesGroup):
+    """Заказать разработку"""
     name = State()
-    stack = State()
-    experience = State()
-    portfolio = State()
+    username = State()
+    phone = State()
+    task = State()
+    wishes = State()  # Опционально
+
+class FixCodeForm(StatesGroup):
+    """Починить код"""
+    name = State()
+    username = State()
+    phone = State()
+    repo = State()       # Опционально
+    problem = State()
+    expected = State()   # Опционально
+    urgency = State()
+
+class DeployForm(StatesGroup):
+    """Поднять код на сервера"""
+    name = State()
+    username = State()
+    phone = State()
+    repo = State()       # Опционально
+    hosting = State()
+    domain = State()
+    requirements = State() # Опционально
 
 class PartnerForm(StatesGroup):
-    """Состояния для формы подачи заявки партнером"""
+    """Стать партнером"""
     name = State()
-    niche = State()
-    experience = State()
+    username = State()
+    phone = State()
+    email = State()      # Опционально
+    project = State()
+    offer = State()
 
 class SupportForm(StatesGroup):
-    """Состояния для службы поддержки"""
-    waiting_message = State()
+    """Поддержка"""
+    name = State()
+    username = State()
+    phone = State()
+    description = State()
 
+# ==========================================
+# 👨‍💻 ФОРМА РАЗРАБОТЧИКА (если нужна модерация)
+# ==========================================
 
+class DevForm(StatesGroup):
+    """Стать разработчиком (для модерации)"""
+    name = State()
+    stack = State()
+
+# ==========================================
+# 🔧 АДМИНСКИЕ ФОРМЫ
+# ==========================================
+
+class AdminBroadcastForm(StatesGroup):
+    """Рассылка"""
+    text = State()
+
+class AdminAddUserForm(StatesGroup):
+    """Добавление пользователя"""
+    user_id = State()
+    role = State()
