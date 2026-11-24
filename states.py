@@ -1,11 +1,11 @@
 """
 SYNTH Platform v2.0 - Машина состояний (FSM)
-Только актуальные формы.
+Все формы для всех ролей.
 """
 from aiogram.fsm.state import State, StatesGroup
 
 # ==========================================
-# 🛒 КЛИЕНТСКИЕ ФОРМЫ (5 основных услуг)
+# 🛒 КЛИЕНТСКИЕ ФОРМЫ
 # ==========================================
 
 class ClientOrderForm(StatesGroup):
@@ -14,16 +14,16 @@ class ClientOrderForm(StatesGroup):
     username = State()
     phone = State()
     task = State()
-    wishes = State()  # Опционально
+    wishes = State()
 
 class FixCodeForm(StatesGroup):
     """Починить код"""
     name = State()
     username = State()
     phone = State()
-    repo = State()       # Опционально
+    repo = State()
     problem = State()
-    expected = State()   # Опционально
+    expected = State()
     urgency = State()
 
 class DeployForm(StatesGroup):
@@ -31,17 +31,17 @@ class DeployForm(StatesGroup):
     name = State()
     username = State()
     phone = State()
-    repo = State()       # Опционально
+    repo = State()
     hosting = State()
     domain = State()
-    requirements = State() # Опционально
+    requirements = State()
 
 class PartnerForm(StatesGroup):
     """Стать партнером"""
     name = State()
     username = State()
     phone = State()
-    email = State()      # Опционально
+    email = State()
     project = State()
     offer = State()
 
@@ -53,11 +53,11 @@ class SupportForm(StatesGroup):
     description = State()
 
 # ==========================================
-# 👨‍💻 ФОРМА РАЗРАБОТЧИКА (если нужна модерация)
+# 👨‍💻 ФОРМА РАЗРАБОТЧИКА
 # ==========================================
 
 class DevForm(StatesGroup):
-    """Стать разработчиком (для модерации)"""
+    """Стать разработчиком"""
     name = State()
     stack = State()
 
@@ -73,3 +73,12 @@ class AdminAddUserForm(StatesGroup):
     """Добавление пользователя"""
     user_id = State()
     role = State()
+
+class AdminBanForm(StatesGroup):
+    """Бан пользователя"""
+    user_id = State()
+    reason = State()
+
+class AdminUnbanForm(StatesGroup):
+    """Разбан пользователя"""
+    user_id = State()
