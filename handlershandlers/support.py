@@ -1,118 +1,127 @@
 """
-SYNTH Platform v2.0 - Служба поддержки
+SYNTH Platform v2.0 - Обработчики: Поддержка
 """
 import logging
-import re
 from aiogram import Router, F, Bot
 from aiogram.fsm.context import FSMContext
-from aiogram.types import Message
+from aiogram.types import Message, ReplyKeyboardRemove, InlineKeyboardMarkup, InlineKeyboardButton
 
 import db
-from config import config
 from states import SupportForm
-from keyboards import client_main_menu, cancel_kb
+from keyboards import cancel_kb, client_main_menu
+from config import config
 
 logger = logging.getLogger(__name__)
 router = Router()
 
+# Тексты предупреждений
+WARNING_START = (
+    "⚠️ <b>Внимание!</b>\n"
+    "Пожалуйста, заполняйте все поля корректно. Менеджер свяжется с вами по указанным контактам.\n\n"
+    "Для отмены в любой момент нажмите кнопку <b>❌ Отмена</b> или введите /cancel"
+)
+
+SUCCESS_MESSAGE = (
+    "✅ <b>Заявка успешно отправлена!</b>\n\n"
+    "Менеджер свяжется с вами в течение 24 часов.\n\n"
+    "⚠️ <b>Важно:</b> Если вы не получили ответ, напишите в поддержку и <b>обязательно укажите свой @username</b>."
+)
+
 @router.message(F.text == "🆘 Поддержка")
-async def menu_support(message: Message, state: FSMContext):
+async def start_support(message: Message, state: FSMContext):
+    logger.info(f"[SUPPORT] User {message.from_user.id} started support flow")
     await state.clear()
-    await state.set_state(SupportForm.waiting_message)
+    await state.set_state(SupportForm.name)
     await message.answer(
-        "🆘 <b>Служба поддержки</b>\n\nОпишите проблему.\n\n<i>Отмена: Отмена</i>",
+        f"🆘 <b>Поддержка</b>\n\n{WARNING_START}\n\n"
+        "1️⃣ <b>Как к вам обращаться?</b>\n(Введите ваше имя или никнейм)",
         parse_mode="HTML",
         reply_markup=cancel_kb()
     )
 
-@router.message(SupportForm.waiting_message)
-async def process_support_message(message: Message, state: FSMContext, bot: Bot):
-    if message.text and message.text.lower() in ["отмена", "cancel", "❌ отмена"]:
-        await state.clear()
-        return await message.answer("❌ Отменено.", reply_markup=client_main_menu())
+@router.message(SupportForm.name)
+async def process_name(message: Message, state: FSMContext):
+    await state.update_data(name=message.text.strip())
+    await state.set_state(SupportForm.username)
     
-    if not message.text and not message.photo:
-        return await message.answer("⚠️ Отправьте текст или фото.", reply_markup=cancel_kb())
-    
-    user_id = message.from_user.id
-    if await db.is_banned(user_id):
-        await state.clear()
-        return await message.answer("🚫 Забанен.", reply_markup=client_main_menu())
-    
-    user = await db.get_user(user_id)
-    if not user:
-        user = await db.get_or_create_user(message.from_user)
-    
-    try:
-        ticket = await db.create_ticket(
-            user_id=user['telegram_id'],
-            channel='tg',
-            type='support',
-            title='Обращение в поддержку',
-            description=message.text or "[Медиа]"
-        )
-        ticket_number = ticket['ticket_number']
-    except Exception as e:
-        logger.error(f"[SUPPORT] DB ERROR: {e}", exc_info=True)
-        return await message.answer("❌ Ошибка.", reply_markup=client_main_menu())
+    current_un = message.from_user.username
+    hint = f"\n\n💡 Ваш текущий юзернейм: @{current_un}" if current_un else ""
     
     await message.answer(
-        f"✅ <b>Принято!</b>\n\n🎫 <code>{ticket_number}</code>\n\nМенеджер скоро ответит.",
+        f"2️⃣ <b>Ваш Telegram username</b>{hint}\n"
+        "(Например: @ivan_dev). Это обязательно для связи!",
+        parse_mode="HTML",
+        reply_markup=cancel_kb()
+    )
+
+@router.message(SupportForm.username)
+async def process_username(message: Message, state: FSMContext):
+    username = message.text.strip().lstrip('@')
+    await state.update_data(username=f"@{username}")
+    await state.set_state(SupportForm.phone)
+    
+    await message.answer(
+        "3️⃣ <b>Ваш номер телефона</b>\n"
+        "(Например: +7 999 123-45-67). Обязательно для оперативной связи!",
+        parse_mode="HTML",
+        reply_markup=cancel_kb()
+    )
+
+@router.message(SupportForm.phone)
+async def process_phone(message: Message, state: FSMContext):
+    await state.update_data(phone=message.text.strip())
+    await state.set_state(SupportForm.description)
+    
+    await message.answer(
+        "4️⃣ <b>Описание проблемы</b>\n"
+        "(Подробно опишите, что произошло или что нужно сделать)",
+        parse_mode="HTML",
+        reply_markup=cancel_kb()
+    )
+
+@router.message(SupportForm.description)
+async def process_description(message: Message, state: FSMContext):
+    await state.update_data(description=message.text.strip())
+    await finish_support(message, state)
+
+async def finish_support(message: Message, state: FSMContext):
+    data = await state.get_data()
+    await state.clear()
+    
+    description = (
+        f"👤 <b>Имя:</b> {data['name']}\n"
+        f"📱 <b>Telegram:</b> {data['username']}\n"
+        f"📞 <b>Телефон:</b> {data['phone']}\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"❓ <b>Проблема:</b>\n{data['description']}"
+    )
+    
+    ticket = await db.create_ticket(
+        user_id=message.from_user.id,
+        channel="tg",
+        type="support",
+        title="🆘 Поддержка",
+        description=description,
+        budget=0
+    )
+    
+    logger.info(f"[SUPPORT] User {message.from_user.id} created support ticket {ticket['ticket_number']}")
+    
+    await message.answer(
+        SUCCESS_MESSAGE,
         parse_mode="HTML",
         reply_markup=client_main_menu()
     )
-    await state.clear()
-    
-    # 🔥 УВЕДОМЛЕНИЕ В ГРУППУ С ПРОСТОЙ МЕТКОЙ
-    user_link = f"<a href=\"tg://user?id={user_id}\">{message.from_user.username or 'Клиент'}</a>"
-    header = (
-        f"🆘 <b>Тикет: {ticket_number}</b>\n"
-        f"👤 {user_link}\n"
-        f"💬 {message.text or '[Медиа]'}\n\n"
-        f"#client_{user_id}\n\n"
-        f"💡 <i>Ответь (Reply) на это сообщение</i>"
-    )
-    
-    target_group = config.support_group_id
-    if not target_group or target_group == 0:
-        logger.warning("[SUPPORT] support_group_id не настроен")
-        return
-
-    try:
-        await bot.send_message(target_group, header, parse_mode="HTML")
-        logger.info(f"[SUPPORT] ✅ Sent to group")
-    except Exception as e:
-        logger.error(f"[SUPPORT] ❌ Failed: {e}", exc_info=True)
-
-@router.message(F.reply_to_message)
-async def support_reply_to_client(message: Message, bot: Bot):
-    """Ответ менеджера через Reply"""
-    if message.chat.id != int(config.support_group_id):
-        return
-    
-    replied_msg = message.reply_to_message
-    if not replied_msg:
-        return
-    
-    text = replied_msg.text or ""
-    
-    # 🔥 ИЩЕМ ПРОСТУЮ МЕТКУ #client_123456789
-    match = re.search(r'#client_(\d+)', text)
-    if not match:
-        await message.answer("⚠️ Это не тикет. Ответь на сообщение бота о новом тикете.")
-        return
-    
-    client_id = int(match.group(1))
     
     try:
-        reply_text = message.text or message.caption or "[Медиа]"
-        await bot.send_message(
-            client_id,
-            f"💬 <b>Ответ поддержки:</b>\n\n{reply_text}",
-            parse_mode="HTML"
+        admin_msg = (
+            f"🔔 <b>НОВАЯ ЗАЯВКА: {ticket['ticket_number']}</b>\n"
+            f"🆘 Тип: Поддержка\n\n"
+            f"{description}\n\n"
+            f"📅 {ticket['created_at']}"
         )
-        await message.answer(f"✅ Отправлено клиенту.")
-        logger.info(f"[SUPPORT] ✅ Reply sent to {client_id}")
+        target_chat = config.support_group_id or config.admin_group_id or config.ceo_group_id
+        if target_chat:
+            await message.bot.send_message(target_chat, admin_msg, parse_mode="HTML")
     except Exception as e:
-        logger.error(f"[SUPPORT] ❌ Failed: {e}", exc_info=True)
-        await message.answer(f"❌ Ошибка: {e}")
+        logger.error(f"Failed to send admin notification: {e}")
