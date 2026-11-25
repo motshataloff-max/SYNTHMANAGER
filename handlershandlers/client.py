@@ -1,10 +1,10 @@
 import logging
 from aiogram import Router, F
 from aiogram.fsm.context import FSMContext
-from aiogram.types import Message
+from aiogram.types import Message, CallbackQuery
 import db
 from states import ClientOrderForm
-from keyboards import cancel_kb, client_main_menu, skip_button
+from keyboards import cancel_kb, client_main_menu, inline_skip_and_cancel
 from config import config
 
 logger = logging.getLogger(__name__)
@@ -20,8 +20,7 @@ async def start_order(message: Message, state: FSMContext):
 async def process_name(message: Message, state: FSMContext):
     await state.update_data(name=message.text.strip())
     await state.set_state(ClientOrderForm.username)
-    hint = f"\n💡 Ваш: @{message.from_user.username}" if message.from_user.username else ""
-    await message.answer(f"2️⃣ <b>Telegram username</b>{hint}", parse_mode="HTML", reply_markup=cancel_kb())
+    await message.answer("2️⃣ <b>Telegram username</b>", parse_mode="HTML", reply_markup=cancel_kb())
 
 @router.message(ClientOrderForm.username)
 async def process_username(message: Message, state: FSMContext):
@@ -40,10 +39,11 @@ async def process_phone(message: Message, state: FSMContext):
 async def process_task(message: Message, state: FSMContext):
     await state.update_data(task=message.text.strip())
     await state.set_state(ClientOrderForm.wishes)
-    await message.answer("5️⃣ <b>Доп. пожелания</b> (или нажмите Пропустить)", parse_mode="HTML", reply_markup=skip_button("skip_wishes"))
+    # 🔥 ИСПРАВЛЕНО: используем inline_skip_and_cancel
+    await message.answer("5️⃣ <b>Доп. пожелания</b> (или нажмите 'Пропустить')", parse_mode="HTML", reply_markup=inline_skip_and_cancel("skip_wishes"))
 
 @router.callback_query(F.data == "skip_wishes")
-async def skip_wishes(callback: Message, state: FSMContext):
+async def skip_wishes(callback: CallbackQuery, state: FSMContext):
     await state.update_data(wishes="Нет")
     await finish_order(callback.message, state)
 
@@ -51,6 +51,12 @@ async def skip_wishes(callback: Message, state: FSMContext):
 async def process_wishes(message: Message, state: FSMContext):
     await state.update_data(wishes=message.text.strip())
     await finish_order(message, state)
+
+@router.callback_query(F.data == "cancel_form")
+async def cancel_form_callback(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    await callback.message.edit_text("❌ Действие отменено.", parse_mode="HTML")
+    await callback.message.answer("Выберите действие:", reply_markup=client_main_menu())
 
 async def finish_order(message: Message, state: FSMContext):
     data = await state.get_data()
