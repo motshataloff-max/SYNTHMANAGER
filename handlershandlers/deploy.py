@@ -1,10 +1,10 @@
 import logging
 from aiogram import Router, F
 from aiogram.fsm.context import FSMContext
-from aiogram.types import Message
+from aiogram.types import Message, CallbackQuery
 import db
 from states import DeployForm
-from keyboards import cancel_kb, client_main_menu, skip_button, hosting_kb, domain_kb
+from keyboards import cancel_kb, client_main_menu, inline_skip_and_cancel, hosting_kb, domain_kb
 from config import config
 
 logger = logging.getLogger(__name__)
@@ -33,10 +33,10 @@ async def process_phone(message: Message, state: FSMContext):
     await state.update_data(phone=message.text.strip())
     await db.update_user_phone(message.from_user.id, message.text.strip())
     await state.set_state(DeployForm.repo)
-    await message.answer("4️⃣ <b>Ссылка на код</b> (или нажмите Пропустить)", parse_mode="HTML", reply_markup=skip_button("skip_repo"))
+    await message.answer("4️⃣ <b>Ссылка на код</b> (или нажмите 'Пропустить')", parse_mode="HTML", reply_markup=inline_skip_and_cancel("skip_repo_deploy"))
 
-@router.callback_query(F.data == "skip_repo")
-async def skip_repo(callback: Message, state: FSMContext):
+@router.callback_query(F.data == "skip_repo_deploy")
+async def skip_repo(callback: CallbackQuery, state: FSMContext):
     await state.update_data(repo="Нет")
     await state.set_state(DeployForm.hosting)
     await callback.message.edit_text("5️⃣ <b>Какой хостинг нужен?</b>", parse_mode="HTML", reply_markup=hosting_kb())
@@ -48,19 +48,19 @@ async def process_repo(message: Message, state: FSMContext):
     await message.answer("5️⃣ <b>Какой хостинг нужен?</b>", parse_mode="HTML", reply_markup=hosting_kb())
 
 @router.callback_query(F.data.startswith("hosting_"))
-async def select_hosting(callback: Message, state: FSMContext):
+async def select_hosting(callback: CallbackQuery, state: FSMContext):
     await state.update_data(hosting=callback.data.replace("hosting_", ""))
     await state.set_state(DeployForm.domain)
     await callback.message.edit_text("6️⃣ <b>Есть ли домен?</b>", parse_mode="HTML", reply_markup=domain_kb())
 
 @router.callback_query(F.data.startswith("domain_"))
-async def select_domain(callback: Message, state: FSMContext):
+async def select_domain(callback: CallbackQuery, state: FSMContext):
     await state.update_data(domain=callback.data.replace("domain_", ""))
     await state.set_state(DeployForm.requirements)
-    await callback.message.edit_text("7️⃣ <b>Доп. требования</b> (или Пропустить)", parse_mode="HTML", reply_markup=skip_button("skip_req"))
+    await callback.message.edit_text("7️⃣ <b>Доп. требования</b> (или нажмите 'Пропустить')", parse_mode="HTML", reply_markup=inline_skip_and_cancel("skip_req"))
 
 @router.callback_query(F.data == "skip_req")
-async def skip_requirements(callback: Message, state: FSMContext):
+async def skip_requirements(callback: CallbackQuery, state: FSMContext):
     await state.update_data(requirements="Нет")
     await finish_deploy(callback.message, state)
 
@@ -68,6 +68,12 @@ async def skip_requirements(callback: Message, state: FSMContext):
 async def process_requirements(message: Message, state: FSMContext):
     await state.update_data(requirements=message.text.strip())
     await finish_deploy(message, state)
+
+@router.callback_query(F.data == "cancel_form")
+async def cancel_form_callback(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    await callback.message.edit_text("❌ Действие отменено.", parse_mode="HTML")
+    await callback.message.answer("Выберите действие:", reply_markup=client_main_menu())
 
 async def finish_deploy(message: Message, state: FSMContext):
     data = await state.get_data()
