@@ -34,18 +34,12 @@ async def cmd_unban(message: Message):
     await message.answer(f"✅ <code>{user_id}</code> разбанен.", parse_mode="HTML")
 
 @router.message(Command("stats"))
-async def stats(message: Message):
-    if message.from_user.id != config.owner_id:
-        return
-    s = await db.general_stats()
-    text = (
-        f"<b>📊 Статистика SYNTH</b>\n"
-        f"──────────────────────\n"
-        f"👥 Клиентов: <b>{s['clients']}</b>\n"
-        f"🎫 Активных тикетов: <b>{s['active_tickets']}</b>\n"
-        f"🔒 Закрытых тикетов: <b>{s['closed_tickets']}</b>"
-    )
-    await message.answer(text, parse_mode="HTML")
+def admin_main_menu():
+    return ReplyKeyboardMarkup(keyboard=[
+        [KeyboardButton(text="📊 Статистика")],
+        [KeyboardButton(text="🎫 Все заявки")],
+        [KeyboardButton(text="👤 Режим клиента")]
+    ], resize_keyboard=True)
 
 @router.message(Command("backup_db"))
 async def backup_db(message: Message):
