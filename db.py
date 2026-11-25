@@ -187,3 +187,26 @@ async def general_stats() -> Dict:
             "active_tickets": await scalar("SELECT COUNT(*) FROM tickets WHERE status != 'closed'"),
             "closed_tickets": await scalar("SELECT COUNT(*) FROM tickets WHERE status = 'closed'"),
         }
+async def update_ticket_status(ticket_number: str, new_status: str, changed_by: int) -> None:
+    """Обновляет статус тикета с записью в историю"""
+    async with _conn() as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute("SELECT status FROM tickets WHERE ticket_number = ?", (ticket_number,))
+        row = await cur.fetchone()
+        old_status = row["status"] if row else None
+        
+        await db.execute(
+            "UPDATE tickets SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE ticket_number = ?",
+            (new_status, ticket_number)
+        )
+        if new_status == 'closed':
+            await db.execute(
+                "UPDATE tickets SET closed_at = CURRENT_TIMESTAMP WHERE ticket_number = ?",
+                (ticket_number,)
+            )
+        
+        await db.execute("""
+            INSERT INTO ticket_history (ticket_number, action, old_value, new_value, changed_by)
+            VALUES (?, 'status_changed', ?, ?, ?)
+        """, (ticket_number, old_status, new_status, changed_by))
+        await db.commit()
