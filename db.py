@@ -31,8 +31,10 @@ CREATE TABLE IF NOT EXISTS users (
     is_samozanyat INTEGER DEFAULT 0,
     client_code TEXT UNIQUE,
     vk_id INTEGER,
+    phone TEXT,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
+
 
 CREATE TABLE IF NOT EXISTS roles (
     telegram_id INTEGER NOT NULL,
