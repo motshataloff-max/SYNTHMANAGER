@@ -10,13 +10,16 @@ def client_main_menu():
         [KeyboardButton(text="🚀 Поднять код на сервера")],
         [KeyboardButton(text="🤝 Стать партнером")],
         [KeyboardButton(text="🆘 Поддержка")],
-        [KeyboardButton(text="📂 Мои заявки")]
+        [KeyboardButton(text="📂 Мои заявки")],
+        [KeyboardButton(text="❌ Отмена")]
     ], resize_keyboard=True)
 
 def admin_main_menu():
     return ReplyKeyboardMarkup(keyboard=[
         [KeyboardButton(text="📊 Статистика")],
-        [KeyboardButton(text="🎫 Все заявки")]
+        [KeyboardButton(text="🎫 Все заявки")],
+        [KeyboardButton(text="💾 Ручной бэкап")],
+        [KeyboardButton(text="👤 Режим клиента")]
     ], resize_keyboard=True)
 
 def urgency_kb():
