@@ -33,7 +33,6 @@ async def process_phone(message: Message, state: FSMContext):
     await state.update_data(phone=message.text.strip())
     await db.update_user_phone(message.from_user.id, message.text.strip())
     await state.set_state(PartnerForm.email)
-    # 🔥 ИСПРАВЛЕНО: используем inline_skip_and_cancel
     await message.answer("4️⃣ <b>Email</b> (или нажмите 'Пропустить')", parse_mode="HTML", reply_markup=inline_skip_and_cancel("skip_email"))
 
 @router.callback_query(F.data == "skip_email")
