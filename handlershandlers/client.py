@@ -39,7 +39,6 @@ async def process_phone(message: Message, state: FSMContext):
 async def process_task(message: Message, state: FSMContext):
     await state.update_data(task=message.text.strip())
     await state.set_state(ClientOrderForm.wishes)
-    # 🔥 ИСПРАВЛЕНО: используем inline_skip_and_cancel
     await message.answer("5️⃣ <b>Доп. пожелания</b> (или нажмите 'Пропустить')", parse_mode="HTML", reply_markup=inline_skip_and_cancel("skip_wishes"))
 
 @router.callback_query(F.data == "skip_wishes")
@@ -65,5 +64,6 @@ async def finish_order(message: Message, state: FSMContext):
     ticket = await db.create_ticket(user_id=message.from_user.id, channel="tg", type="project", title="🛒 Заказать разработку", description=desc)
     await message.answer("✅ Заявка отправлена! Менеджер свяжется в течение 24 часов.", parse_mode="HTML", reply_markup=client_main_menu())
     try:
-        await message.bot.send_message(config.ceo_group_id, f"🔔 НОВАЯ ЗАЯВКА: {ticket['ticket_number']}\n{desc}", parse_mode="HTML")
+        target_chat = config.admin_group_id or config.ceo_group_id
+        await message.bot.send_message(target_chat, f"🔔 НОВАЯ ЗАЯВКА: {ticket['ticket_number']}\n{desc}", parse_mode="HTML")
     except: pass
