@@ -82,5 +82,6 @@ async def finish_deploy(message: Message, state: FSMContext):
     ticket = await db.create_ticket(user_id=message.from_user.id, channel="tg", type="deploy", title="🚀 Поднять код на сервера", description=desc)
     await message.answer("✅ Заявка отправлена! Менеджер свяжется в течение 24 часов.", parse_mode="HTML", reply_markup=client_main_menu())
     try:
-        await message.bot.send_message(config.ceo_group_id, f"🔔 ЗАЯВКА: {ticket['ticket_number']}\n{desc}", parse_mode="HTML")
+        target_chat = config.admin_group_id or config.ceo_group_id
+        await message.bot.send_message(target_chat, f"🔔 ЗАЯВКА: {ticket['ticket_number']}\n{desc}", parse_mode="HTML")
     except: pass
